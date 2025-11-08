@@ -4,13 +4,23 @@ import math
 
 # Global flag to control the mining loop
 mining_active = True
+recently_mined_positions = set()  # Track recently mined positions to avoid repeats
 
 def stop_mining():
     global mining_active
     mining_active = False
 
+def check_for_t_press():
+    """Check if T key is pressed to stop mining"""
+    screen = screen_name()
+    if screen and "chat" in screen.lower():
+        echo("T pressed! Stopping mining script.")
+        stop_mining()
+        return True
+    return False
+
 def get_ore_blocks_around(position, radius=3):
-    """Scan for ore blocks around the given position"""
+    """Scan for ore blocks around the given position - EXCLUDE recently mined"""
     ore_blocks = []
     x, y, z = position
     
@@ -26,6 +36,11 @@ def get_ore_blocks_around(position, radius=3):
                     continue
                     
                 check_x, check_y, check_z = x + dx, y + dy, z + dz
+                
+                # Skip if this position was recently mined
+                if (check_x, check_y, check_z) in recently_mined_positions:
+                    continue
+                    
                 block_type = getblock(check_x, check_y, check_z)
                 
                 if is_ore_block(block_type):
@@ -64,59 +79,67 @@ def is_ore_block(block_type):
     return False
 
 def mine_ore_vein(start_position, max_blocks=20):
-    """Mine an entire ore vein using flood fill algorithm"""
+    """Mine an entire ore vein using flood fill algorithm."""
     if not mining_active:
-        return
-        
+        return 0
+
     echo(f"Found ore vein! Mining {max_blocks} blocks maximum...")
-    
+
     mined_blocks = 0
     visited = set()
     queue = [start_position]
-    
+
+    # 26-adjacent directions (3x3x3 cube minus center)
+    directions_26 = [(dx, dy, dz) for dx in (-1, 0, 1)
+                                 for dy in (-1, 0, 1)
+                                 for dz in (-1, 0, 1)
+                                 if not (dx == 0 and dy == 0 and dz == 0)]
+
     while queue and mined_blocks < max_blocks and mining_active:
-        if not mining_active:
+        # Check for T press
+        if check_for_t_press():
             break
-            
+
         x, y, z = queue.pop(0)
-        
+
         if (x, y, z) in visited:
             continue
-            
+
         visited.add((x, y, z))
-        
+
         block_type = getblock(x, y, z)
         if not is_ore_block(block_type):
             continue
-        
-        # Move to and mine this ore block
-        if mine_single_ore_block_simple(x, y, z):
+
+        # Clear path and mine this ore block
+        if mine_single_ore_block(x, y, z):
             mined_blocks += 1
             echo(f"Mined ore {mined_blocks}/{max_blocks}: {block_type}")
             
-            # Check adjacent blocks for more ore
-            directions = [
-                (1, 0, 0), (-1, 0, 0),  # right, left
-                (0, 1, 0), (0, -1, 0),  # up, down
-                (0, 0, 1), (0, 0, -1)   # forward, backward
-            ]
-            
-            for dx, dy, dz in directions:
+            # Add to recently mined positions
+            recently_mined_positions.add((x, y, z))
+
+            # Check all adjacent blocks (including diagonals) for more ore
+            for dx, dy, dz in directions_26:
                 new_x, new_y, new_z = x + dx, y + dy, z + dz
                 if (new_x, new_y, new_z) not in visited:
                     new_block_type = getblock(new_x, new_y, new_z)
                     if is_ore_block(new_block_type):
                         queue.append((new_x, new_y, new_z))
-        
-        # Small delay between blocks
-        time.sleep(0.2)
-    
+
+        # Small delay between blocks to avoid spamming inputs
+        time.sleep(0.15)
+
     echo(f"Ore vein mining complete. Mined {mined_blocks} blocks.")
     return mined_blocks
 
 def mine_single_ore_block_simple(x, y, z):
-    """Mine a single ore block at the given coordinates - SIMPLE & EFFECTIVE"""
+    """Mine a single ore block at the given coordinates"""
     if not mining_active:
+        return False
+        
+    # Check for T press
+    if check_for_t_press():
         return False
         
     # Convert to integers
@@ -157,6 +180,11 @@ def mine_single_ore_block_simple(x, y, z):
     start_time = time.time()
     
     while mining_active and (time.time() - start_time) < mine_time:
+        # Check for T press
+        if check_for_t_press():
+            player_press_attack(False)
+            return False
+            
         # Check if block is still there
         current_block = getblock(ore_x, ore_y, ore_z)
         if not is_ore_block(current_block):
@@ -169,6 +197,8 @@ def mine_single_ore_block_simple(x, y, z):
     
     if ore_mined:
         echo(f"✓ SUCCESS: Mined {ore_type}!")
+        # Add to recently mined
+        recently_mined_positions.add((ore_x, ore_y, ore_z))
     else:
         echo(f"✗ FAILED: Could not mine {ore_type}")
     
@@ -201,6 +231,10 @@ def mine_single_block_simple(x, y, z):
     if not mining_active:
         return False
         
+    # Check for T press
+    if check_for_t_press():
+        return False
+        
     # Convert to integers
     x, y, z = int(x), int(y), int(z)
     
@@ -225,7 +259,15 @@ def mine_single_block_simple(x, y, z):
     
     # Mine the block
     player_press_attack(True)
-    time.sleep(1.5)  # Mine for 1.5 seconds
+    
+    # Check for T press during mining
+    start_time = time.time()
+    while time.time() - start_time < 1.5 and mining_active:
+        if check_for_t_press():
+            player_press_attack(False)
+            return False
+        time.sleep(0.1)
+        
     player_press_attack(False)
     time.sleep(0.2)
     
@@ -237,6 +279,10 @@ def mine_single_ore_block(x, y, z):
     if not mining_active:
         return False
         
+    # Check for T press
+    if check_for_t_press():
+        return False
+        
     # Convert to integers
     ore_x, ore_y, ore_z = int(x), int(y), int(z)
     
@@ -246,38 +292,80 @@ def mine_single_ore_block(x, y, z):
     # Then mine the ore using simple approach
     return mine_single_ore_block_simple(ore_x, ore_y, ore_z)
 
-
-
 def check_for_ores_and_mine(current_position):
-    """Check for nearby ores and mine them if found"""
+    """Check for nearby ores and mine them if found."""
+    if not mining_active:
+        return False
+
+    # Check for T press
+    if check_for_t_press():
+        return False
+
+    ore_blocks = get_ore_blocks_around(current_position, radius=2)
+
+    if not ore_blocks:
+        return False
+
+    echo(f"Found {len(ore_blocks)} ore blocks nearby!")
+
+    # RELEASE SNEAK when starting ore mining
+    player_press_sneak(False)
+    echo("Released sneak for ore mining")
+
+    # Save current position and orientation before mining ore veins
+    vein_start_position = player_position()
+    vein_start_orientation = player_orientation()
+    echo(f"Saved position: {vein_start_position}, orientation: {vein_start_orientation}")
+
+    # Sort ores by distance so we mine closest first and reduce reach issues
+    px, py, pz = vein_start_position
+    ore_blocks.sort(key=lambda b: (b[0]-px)**2 + (b[1]-py)**2 + (b[2]-pz)**2)
+
+    mined_any = False
+    mined_this_scan = set()  # Track positions mined in this scan
+
+    for ox, oy, oz, _bt in ore_blocks:
+        if not mining_active:
+            break
+            
+        # Check for T press
+        if check_for_t_press():
+            break
+            
+        # Skip if we've already mined this position in current scan
+        if (ox, oy, oz) in mined_this_scan:
+            continue
+            
+        # Skip if it's no longer an ore (already mined)
+        current_bt = getblock(int(ox), int(oy), int(oz))
+        if not is_ore_block(current_bt):
+            echo(f"Skipping {ox}, {oy}, {oz} - no longer an ore")
+            continue
+
+        echo(f"Attempting to mine ore at {ox}, {oy}, {oz}")
+        mined_in_vein = mine_ore_vein((int(ox), int(oy), int(oz)))
+        if mined_in_vein:
+            mined_any = True
+            # Add all positions from this vein to our tracking
+            mined_this_scan.add((ox, oy, oz))
+            # After mining a vein, break and let main loop re-scan
+            echo("Vein mined, returning to main mining...")
+            break
+
+    # ALWAYS restore original orientation and position after ore mining (successful or not)
+    if mining_active:
+        echo("Restoring original position and orientation...")
+        return_to_position(vein_start_position, vein_start_orientation)
+
+    return mined_any
+
+def clear_path_to_ore(ore_x, ore_y, ore_z):
+    """Clear blocks between player and ore - IMPROVED VERSION"""
     if not mining_active:
         return False
         
-    ore_blocks = get_ore_blocks_around(current_position, radius=2)
-    
-    if ore_blocks:
-        echo(f"Found {len(ore_blocks)} ore blocks nearby!")
-        
-        # Save current position before mining ore vein
-        vein_start_position = player_position()
-        vein_start_orientation = player_orientation()
-        
-        # Mine the first ore block found (the vein)
-        first_ore = ore_blocks[0]
-        mine_ore_vein((first_ore[0], first_ore[1], first_ore[2]))
-        
-        # Return to original position and orientation
-        if mining_active:
-            echo("Returning to original mining position...")
-            return_to_position(vein_start_position, vein_start_orientation)
-        
-        return True
-    
-    return False
-
-def clear_path_to_ore(ore_x, ore_y, ore_z):
-    """Clear blocks between player and ore - SIMPLE VERSION"""
-    if not mining_active:
+    # Check for T press
+    if check_for_t_press():
         return False
         
     # Convert ore coordinates to integers
@@ -287,6 +375,10 @@ def clear_path_to_ore(ore_x, ore_y, ore_z):
     player_x, player_y, player_z = int(player_x), int(player_y), int(player_z)
     
     echo(f"Clearing path to ore at {ore_x}, {ore_y}, {ore_z}")
+    
+    # RELEASE SNEAK when clearing path
+    player_press_sneak(False)
+    echo("Released sneak for path clearing")
     
     # Calculate direction and distance
     dx = ore_x - player_x
@@ -300,21 +392,26 @@ def clear_path_to_ore(ore_x, ore_y, ore_z):
     
     blocks_cleared = 0
     
-    # Simple path clearing - check blocks along the line
-    steps = max(int(distance) + 2, 3)
+    # Improved path clearing - only clear blocks that are actually in the way
+    # Use Bresenham's line algorithm for better path finding
+    steps = max(int(distance * 2), 5)  # More samples for better accuracy
     
     for i in range(1, steps):
         if not mining_active:
             break
             
-        # Calculate position along the path
+        # Check for T press
+        if check_for_t_press():
+            break
+            
+        # Calculate position along the path with interpolation
         progress = i / (steps - 1)
         check_x = player_x + int(dx * progress)
         check_y = player_y + int(dy * progress)
         check_z = player_z + int(dz * progress)
         
-        # Stop if we reach the ore
-        if check_x == ore_x and check_y == ore_y and check_z == ore_z:
+        # Stop if we reach or pass the ore
+        if (abs(check_x - ore_x) <= 1 and abs(check_y - ore_y) <= 1 and abs(check_z - ore_z) <= 1):
             break
             
         block_type = getblock(check_x, check_y, check_z)
@@ -331,6 +428,8 @@ def clear_path_to_ore(ore_x, ore_y, ore_z):
             # Use simple mining for path blocks
             if mine_single_block_simple(check_x, check_y, check_z):
                 blocks_cleared += 1
+                # Small delay after clearing a block
+                time.sleep(0.2)
     
     echo(f"Path clearing complete. Cleared {blocks_cleared} blocks.")
     return blocks_cleared > 0
@@ -338,6 +437,10 @@ def clear_path_to_ore(ore_x, ore_y, ore_z):
 def return_to_position(target_position, target_orientation):
     """Return to the original position and orientation"""
     if not mining_active:
+        return
+        
+    # Check for T press
+    if check_for_t_press():
         return
         
     current_pos = player_position()
@@ -357,6 +460,7 @@ def return_to_position(target_position, target_orientation):
     if distance < 2:
         player_set_orientation(target_orientation[0], target_orientation[1])
         time.sleep(0.5)
+        echo(f"Restored orientation: {target_orientation}")
         return
     
     # Otherwise, look toward target and move
@@ -371,6 +475,11 @@ def return_to_position(target_position, target_orientation):
     player_press_forward(True)
     
     while mining_active and distance > 1:
+        # Check for T press
+        if check_for_t_press():
+            player_press_forward(False)
+            return
+            
         current_pos = player_position()
         current_x, current_y, current_z = current_pos
         
@@ -391,7 +500,7 @@ def return_to_position(target_position, target_orientation):
     if mining_active:
         player_set_orientation(target_orientation[0], target_orientation[1])
         time.sleep(0.5)
-
+        echo(f"Restored orientation: {target_orientation}")
 
 def check_gravel_block(yaw, pitch=20):
     """Check if the targeted block at given orientation is gravel"""
@@ -454,39 +563,41 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
         player_press_attack(False)
     return False
 
-
 def mining_time():
-    global mining_active, original_position, original_orientation
+    global mining_active, original_position, original_orientation, recently_mined_positions
     
     mining_active = True
+    recently_mined_positions.clear()  # Clear recent positions on start
     last_chat_check = time.time()
     last_ore_check = time.time()
     
     original_position = player_position()
     original_orientation = player_orientation()
     
-    echo("Mining script started with ore vein detection!")
+    echo("Mining script started with improved ore vein detection!")
     echo("Press T to stop. Will automatically mine ore veins.")
     
     try:
         while mining_active:
             current_time = time.time()
             
+            # Check for T press more frequently
             if current_time - last_chat_check > 0.1:
-                screen = screen_name()
-                if screen and "chat" in screen.lower():
-                    echo("T pressed! Stopping mining script immediately.")
-                    mining_active = False
+                if check_for_t_press():
                     break
                 last_chat_check = current_time
             
+            # Check for ores periodically
             if current_time - last_ore_check > 2.0:
                 current_pos = player_position()
-                if check_for_ores_and_mine(current_pos):
-                    last_ore_check = time.time()
+                ore_detected = check_for_ores_and_mine(current_pos)
+                if ore_detected:
+                    # If we mined something, wait a bit then continue with regular mining
+                    last_ore_check = time.time() + 3.0  # Longer delay after mining
                     continue
                 last_ore_check = current_time
             
+            # REGULAR MINING MODE - Press sneak for safety
             if mining_active:
                 yaw, pitch = player_orientation()
                 player_press_sneak(True)
@@ -501,9 +612,7 @@ def mining_time():
             for step_yaw, step_pitch, check_gravel in mining_steps:
                 if not mining_active:
                     break
-                screen = screen_name()
-                if screen and "chat" in screen.lower():
-                    mining_active = False
+                if check_for_t_press():
                     break
                 mine_at_angle(step_yaw, step_pitch, check_gravel)
             
@@ -515,9 +624,7 @@ def mining_time():
                 for step_yaw, step_pitch, check_gravel in mining_steps_2:
                     if not mining_active:
                         break
-                    screen = screen_name()
-                    if screen and "chat" in screen.lower():
-                        mining_active = False
+                    if check_for_t_press():
                         break
                     mine_at_angle(step_yaw, step_pitch, check_gravel)
             
@@ -532,10 +639,7 @@ def mining_time():
                 for step_yaw, step_pitch, check_gravel in mining_steps_3:
                     if not mining_active:
                         break
-                    screen = screen_name()
-                    if screen and "chat" in screen.lower():
-                        echo("T pressed during mining! Stopping immediately.")
-                        mining_active = False
+                    if check_for_t_press():
                         break
                     mine_at_angle(step_yaw, step_pitch, check_gravel)
             
@@ -547,10 +651,7 @@ def mining_time():
                 for step_yaw, step_pitch, check_gravel in mining_steps_4:
                     if not mining_active:
                         break
-                    screen = screen_name()
-                    if screen and "chat" in screen.lower():
-                        echo("T pressed during mining! Stopping immediately.")
-                        mining_active = False
+                    if check_for_t_press():
                         break
                     mine_at_angle(step_yaw, step_pitch, check_gravel)
             
@@ -560,10 +661,7 @@ def mining_time():
                     if not mining_active:
                         player_press_forward(False)
                         break
-                    screen = screen_name()
-                    if screen and "chat" in screen.lower():
-                        echo("T pressed! Stopping immediately.")
-                        mining_active = False
+                    if check_for_t_press():
                         player_press_forward(False)
                         break
                     time.sleep(0.1)
@@ -571,12 +669,13 @@ def mining_time():
                     player_press_forward(False)
             
             if mining_active:
-                echo("Second Cycle Complete")
+                echo("Mining cycle complete")
                 
     finally:
+        # Always release all keys when stopping
         player_press_sneak(False)
         player_press_forward(False)
         player_press_attack(False)
         echo("Mining script stopped completely.")
-        
+
 mining_time()
