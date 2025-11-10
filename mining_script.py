@@ -37,6 +37,18 @@ previous_target = m.player_position()
 mining_active = True
 recently_mined_positions = set()  # Track recently mined positions to avoid repeats
 
+def wait_ticks(ticks):
+    """Wait for specified number of Minecraft ticks (20 ticks = 1 second)"""
+    if not mining_active:
+        return False
+    start_time = time.time()
+    target_time = start_time + (ticks / 20.0)
+    while mining_active and time.time() < target_time:
+        if check_for_t_press():
+            return False
+        time.sleep(0.01)  # Small sleep to prevent CPU overload
+    return mining_active
+
 def stop_mining():
     global mining_active
     mining_active = False
@@ -64,24 +76,24 @@ def gravel_check(yaw, pitch=20):
 
 
 def gravel_mine():
-    """ULTRA-FAST gravel handling"""
+    """ULTRA-FAST gravel handling using ticks"""
     if not mining_active:
         return
         
     # Switch to shovel (hotbar slot 9)
     m.press_key_bind("key.hotbar.9", True)
-    time.sleep(0.05)  # Reduced
+    wait_ticks(1)  # 1 tick = 0.05 seconds
     m.press_key_bind("key.hotbar.9", False)
     
     # Mine quickly
     m.player_press_attack(True)
-    time.sleep(0.8)  # Reduced from 1.0s
+    wait_ticks(16)  # 16 ticks = 0.8 seconds
     m.player_press_attack(False)
     
     # Switch back to pickaxe (hotbar slot 1)
     if mining_active:
         m.press_key_bind("key.hotbar.1", True)
-        time.sleep(0.05)  # Reduced
+        wait_ticks(1)  # 1 tick = 0.05 seconds
         m.press_key_bind("key.hotbar.1", False)
 
 def check_for_lava():
@@ -154,7 +166,7 @@ def get_facing_direction(yaw):
         return "east"   # +X
 
 def emergency_lava_stop():
-    """Emergency stop procedure when lava is detected"""
+    """Emergency stop procedure when lava is detected - using ticks"""
     global mining_active
     
     m.echo("⚠️ LAVA DETECTED! EMERGENCY STOP!")
@@ -166,9 +178,8 @@ def emergency_lava_stop():
 
     m.player_press_backward(True)
     
-    start_time = time.time()
-    while time.time() - start_time < 3.0:
-        time.sleep(0.1)
+    # Move backwards for 3 seconds (60 ticks)
+    wait_ticks(60)
     
     m.player_press_backward(False)
     
@@ -184,7 +195,7 @@ def check_emergencies():
     return False
 
 def mine_at_angle(yaw, pitch, check_gravel=True):
-    """ULTRA-FAST mining at specific angle - MINIMAL DELAYS"""
+    """Mine at specific angle using targeting system to detect when block breaks"""
     if not mining_active:
         return False
         
@@ -196,9 +207,40 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
             return True
     
     if mining_active:
-        # FAST mining - minimal delays
+        # Get the targeted block position before mining
+        targeted_block = m.player_get_targeted_block(max_distance=5)
+        if not targeted_block or not targeted_block.position:
+            # No block targeted, just do a quick mine
+            m.player_press_attack(True)
+            wait_ticks(4)  # 4 ticks = 0.2 seconds
+            m.player_press_attack(False)
+            return False
+            
+        target_x, target_y, target_z = targeted_block.position
+        original_block_type = m.getblock(target_x, target_y, target_z)
+        
+        # If it's air, no need to mine
+        if not original_block_type or original_block_type == "minecraft:air":
+            return False
+        
+        # Mine until the block breaks
         m.player_press_attack(True)
-        time.sleep(0.5)  # Reduced from 0.5s
+        
+        start_ticks = 0
+        max_mining_ticks = 60  # Maximum 3 seconds in ticks (60 ticks)
+        
+        while mining_active and start_ticks < max_mining_ticks:
+            if check_for_t_press():
+                break
+                
+            # Check if the block is now air (broken)
+            current_block_type = m.getblock(target_x, target_y, target_z)
+            if current_block_type == "minecraft:air":
+                break
+                
+            wait_ticks(1)  # Wait 1 tick between checks
+            start_ticks += 1
+        
         m.player_press_attack(False)
         
     return False
@@ -283,12 +325,15 @@ def is_ore_block(block_type):
     return False
 
 def mine_ore_vein_continuous():
-    """Continuously mine all visible ores in a vein"""
+    """Continuously mine all visible ores in a vein - RETURNS TO CURRENT ORIENTATION"""
     global previous_target
     
     if not mining_active:
         return False
 
+    # Save CURRENT orientation before ore mining
+    current_orientation = m.player_orientation()
+    
     ores_mined = 0
     max_ores_in_vein = 20
     
@@ -370,12 +415,15 @@ def mine_ore_vein_continuous():
             recently_mined_positions.add((x, y, z))
             break
     
-    # After ore vein mining, just re-enable sneak and continue from current position
+    # After ore vein mining, return to CURRENT orientation and re-enable sneak
     if mining_active:
-        m.player_press_sneak(True)  # Re-enable sneak
+        m.player_set_orientation(current_orientation[0], current_orientation[1])
+        time.sleep(0.1)
+        m.player_press_sneak(True)
         time.sleep(0.1)
     
     return ores_mined > 0
+
 
 def is_player_close_to_ore(ore_x, ore_y, ore_z, max_distance=5):
     """Check if player is close enough to mine the ore directly"""
@@ -494,23 +542,20 @@ def return_to_position(target_position, target_orientation):
         time.sleep(0.3)
 
 
-def perform_strip_mining_with_ore_scanning():
-    """Perform strip mining while scanning for ores between steps"""
-    original_position = m.player_position()
-    original_orientation = m.player_orientation()
-
+def perform_strip_mining():
+    """Perform strip mining using targeting system for faster block detection"""
     if not mining_active:
         return False
         
     if mining_active:
         yaw, pitch = m.player_orientation()
         m.player_press_sneak(True)
-        time.sleep(0.05)
+        wait_ticks(1)  # 1 tick
     
     if mining_active:
         m.player_press_forward(True)
     
-    # First set of mining steps with ore scanning (4 steps)
+    # First set of mining steps with targeting (4 steps)
     mining_steps = [
         (yaw, 0, False), (yaw, 20, True), (yaw, 0, False), (yaw, 20, True)
     ]
@@ -521,26 +566,26 @@ def perform_strip_mining_with_ore_scanning():
         if check_for_t_press():
             break
         
-        # NON-BLOCKING LAVA CHECK - just return if lava detected
+        # LAVA CHECK
         if check_for_lava():
             m.echo("LAVA DETECTED! Stopping strip mining.")
             m.player_press_forward(False)
             emergency_lava_stop()
             return False
             
-        # FAST mining with minimal delays
+        # Use targeting-based mining
         mine_at_angle(step_yaw, step_pitch, check_gravel)
         
-        # QUICK ore scan (non-blocking)
+        # QUICK ore scan
         if mining_active and ore_check():
             m.player_press_forward(False)
-            return_to_position(original_position,original_orientation)
+            # No need to return to position - ore_check already handles orientation
             return True
     
     if mining_active:
         m.player_press_forward(False)
     
-    # Second set of mining steps with ore scanning (2 steps)
+    # Second set of mining steps with targeting (2 steps)
     if mining_active:
         mining_steps_2 = [(yaw, 0, False), (yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_2:
@@ -549,7 +594,7 @@ def perform_strip_mining_with_ore_scanning():
             if check_for_t_press():
                 break
             
-            # NON-BLOCKING LAVA CHECK
+            # LAVA CHECK
             if check_for_lava():
                 m.echo("LAVA DETECTED! Stopping strip mining.")
                 m.player_press_forward(False)
@@ -560,7 +605,6 @@ def perform_strip_mining_with_ore_scanning():
             
             if mining_active and ore_check():
                 m.player_press_forward(False)
-                # DON'T return to position - just continue from current spot
                 return True
     
     if mining_active:
@@ -569,7 +613,7 @@ def perform_strip_mining_with_ore_scanning():
     if mining_active:
         m.player_press_forward(True)
     
-    # Third set of mining steps with ore scanning (4 steps)
+    # Third set of mining steps with targeting (4 steps)
     if mining_active:
         mining_steps_3 = [(yaw, 0, False), (yaw, 20, True), (yaw, 0, False), (yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_3:
@@ -578,7 +622,7 @@ def perform_strip_mining_with_ore_scanning():
             if check_for_t_press():
                 break
             
-            # NON-BLOCKING LAVA CHECK
+            # LAVA CHECK
             if check_for_lava():
                 m.echo("LAVA DETECTED! Stopping strip mining.")
                 m.player_press_forward(False)
@@ -589,13 +633,12 @@ def perform_strip_mining_with_ore_scanning():
             
             if mining_active and ore_check():
                 m.player_press_forward(False)
-                # DON'T return to position - just continue from current spot
                 return True
     
     if mining_active:
         m.player_press_forward(False)
     
-    # Fourth set of mining steps with ore scanning (2 steps)
+    # Fourth set of mining steps with targeting (2 steps)
     if mining_active:
         mining_steps_4 = [(yaw, 0, False), (yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_4:
@@ -604,7 +647,7 @@ def perform_strip_mining_with_ore_scanning():
             if check_for_t_press():
                 break
             
-            # NON-BLOCKING LAVA CHECK
+            # LAVA CHECK
             if check_for_lava():
                 m.echo("LAVA DETECTED! Stopping strip mining.")
                 m.player_press_forward(False)
@@ -615,10 +658,9 @@ def perform_strip_mining_with_ore_scanning():
             
             if mining_active and ore_check():
                 m.player_press_forward(False)
-                # DON'T return to position - just continue from current spot
                 return True
     
-    # Final forward movement (3 steps) - WITH NON-BLOCKING LAVA CHECKS
+    # Final forward movement (3 steps)
     if mining_active:
         m.player_press_forward(True)
         for i in range(3): 
@@ -629,14 +671,14 @@ def perform_strip_mining_with_ore_scanning():
                 m.player_press_forward(False)
                 break
             
-            # NON-BLOCKING LAVA CHECK
+            # LAVA CHECK
             if check_for_lava():
                 m.echo("LAVA DETECTED! Stopping strip mining.")
                 m.player_press_forward(False)
                 emergency_lava_stop()
                 return False
                 
-            time.sleep(0.05)
+            wait_ticks(1)  # 1 tick per forward step
         if mining_active:
             m.player_press_forward(False)
     
@@ -644,26 +686,25 @@ def perform_strip_mining_with_ore_scanning():
 
 
 def quick_ore_scan():
-    """Quick scan for ores - mines all visible ores before returning (same behavior as original)"""
+    """Quick scan for ores using targeting system - RETURNS TO CURRENT ORIENTATION"""
     global previous_target
     
     if not mining_active:
         return False
 
-    # Don't save original position - we'll just return to current orientation after mining
+    # Save CURRENT orientation before ore mining
+    current_orientation = m.player_orientation()
+    
     ores_mined = 0
     max_quick_ores = 5
     
-    # Use a temporary set for this quick scan session only
     temp_mined_positions = set()
     
     while mining_active and ores_mined < max_quick_ores:
         px, py, pz = m.player_position()
         
-        # Quick scan
         occluders = get_area(position=(px, py + 1.62, pz))
 
-        # Filter out both permanently and temporarily mined positions
         filtered_occluders = []
         for occluder in occluders:
             pos, base, simple, meta = occluder
@@ -683,50 +724,53 @@ def quick_ore_scan():
         previous_target = aim_result.optimal_pos
         x, y, z = aim_result.world_pos
         
-        # STOP MOVEMENT IMMEDIATELY before ore mining
+        # STOP MOVEMENT before ore mining
         m.player_press_forward(False)
         m.player_press_sneak(False)
-        time.sleep(0.05)
+        wait_ticks(1)  # 1 tick
         
         # Quick aim and mine
         aim.player_aim.smooth_rotate_to(aim_result.target_angle[0], aim_result.target_angle[1], duration=0.15)
-        time.sleep(0.2)
+        wait_ticks(4)  # 4 ticks = 0.2 seconds
         
         ore_type = m.getblock(x, y, z)
-            
-        # Mine the ore
-        m.player_press_attack(True)
-        mining_time = get_mining_time_for_ore(ore_type) * 0.7
         
-        start_time = time.time()
+        # Mine using targeting system
+        m.player_press_attack(True)
+        
+        start_ticks = 0
+        max_mining_ticks = int(get_mining_time_for_ore(ore_type) * 20 * 0.7)  # Convert to ticks
+        
         ore_mined = False
         
-        while mining_active and (time.time() - start_time) < mining_time:
+        while mining_active and start_ticks < max_mining_ticks:
             if check_for_t_press():
                 break
             current_block = m.getblock(x, y, z)
             if current_block == "minecraft:air":
                 ore_mined = True
                 break
-            time.sleep(0.1)
-        
+            wait_ticks(1)  # Check every tick
+            start_ticks += 1
+            
         m.player_press_attack(False)
         
         if ore_mined:
             ores_mined += 1
             temp_mined_positions.add((x, y, z))
             recently_mined_positions.add((x, y, z))
-            
-            time.sleep(0.3)
+            wait_ticks(6)  # 6 ticks = 0.3 seconds
         else:
             temp_mined_positions.add((x, y, z))
             recently_mined_positions.add((x, y, z))
             break
     
-    # After ore mining, just re-enable sneak and continue from current position
+    # After ore mining, return to CURRENT orientation and re-enable sneak
     if ores_mined > 0 and mining_active:
-        m.player_press_sneak(True)  # Re-enable sneak
-        time.sleep(0.1)
+        m.player_set_orientation(current_orientation[0], current_orientation[1])
+        wait_ticks(2)  # 2 ticks = 0.1 seconds
+        m.player_press_sneak(True)
+        wait_ticks(2)  # 2 ticks = 0.1 seconds
         return True
     
     return False
@@ -797,7 +841,7 @@ def return_to_position(target_position, target_orientation):
         time.sleep(0.1)  # Reduced
 
 def ore_check():
-    """ULTRA-FAST ore check - returns immediately if no ores, no lava checks"""
+    """ULTRA-FAST ore check using targeting system"""
     global previous_target
     
     if not mining_active:
@@ -805,10 +849,8 @@ def ore_check():
 
     px, py, pz = m.player_position()
     
-    # Quick scan with limited range
     occluders = get_area(position=(px, py + 1.62, pz))
 
-    # Quick filter
     filtered_occluders = []
     for occluder in occluders:
         pos, base, simple, meta = occluder
@@ -822,85 +864,84 @@ def ore_check():
         previous_target=previous_target
     )
 
-    # Return immediately if no ores found
     if aim_result is None:
         return False
         
-    # If ore found, do the full mining process
     return quick_ore_scan()
 
 
 def mining_time():
-    """Main mining loop - OPTIMIZED FOR SPEED"""
+    """Main mining loop using tick-based timing"""
     global mining_active, previous_target, recently_mined_positions
     
     mining_active = True
     previous_target = m.player_position()
     recently_mined_positions.clear()
-    last_ore_check = time.time()
-    ore_check_interval = 1.5  # Reduced from 2.0
-    last_chat_check = time.time()
-    last_lava_check = time.time()
-    lava_check_interval = 0.3  # Slightly less frequent for performance
     
-    # Press sneak once at the very beginning and keep it pressed
+    # Convert time intervals to tick intervals
+    ore_check_interval_ticks = 30  # 1.5 seconds in ticks
+    chat_check_interval_ticks = 3  # 0.15 seconds in ticks
+    lava_check_interval_ticks = 6  # 0.3 seconds in ticks
+    
+    last_ore_check_ticks = 0
+    last_chat_check_ticks = 0
+    last_lava_check_ticks = 0
+    current_tick = 0
+    
     m.player_press_sneak(True)
-    time.sleep(0.1)
+    wait_ticks(2)  # 2 ticks = 0.1 seconds
     
+    m.echo("Press T to stop. TICK-BASED strip mining active.")
     
     try:
         while mining_active:
-            current_time = time.time()
+            current_tick += 1
             
-            # Check for T press (slightly less frequent)
-            if current_time - last_chat_check > 0.15:  # Reduced frequency
+            # Check for T press
+            if current_tick - last_chat_check_ticks >= chat_check_interval_ticks:
                 if check_for_t_press():
                     break
-                last_chat_check = current_time
+                last_chat_check_ticks = current_tick
             
-            # Lava detection (optimized frequency)
-            if current_time - last_lava_check > lava_check_interval:
+            # Lava detection
+            if current_tick - last_lava_check_ticks >= lava_check_interval_ticks:
                 if check_for_lava():
                     m.echo("MAIN LOOP: Lava detected - emergency stop!")
                     emergency_lava_stop()
                     break
-                last_lava_check = current_time
+                last_lava_check_ticks = current_tick
             
-            # Perform FAST strip mining with exact pattern
-            ore_mined_in_cycle = perform_strip_mining_with_ore_scanning()
+            # Use targeting-based strip mining
+            ore_mined_in_cycle = perform_strip_mining()
             
-            # If ores were mined, short delay then continue
             if ore_mined_in_cycle:
-                last_ore_check = time.time() + 1.5  # Reduced
+                last_ore_check_ticks = current_tick + 30  # Wait 1.5 seconds (30 ticks)
                 continue
             
             # Less frequent full ore vein scans
-            if current_time - last_ore_check > ore_check_interval:
-                # Quick cleanup of recently_mined_positions
+            if current_tick - last_ore_check_ticks >= ore_check_interval_ticks:
                 if len(recently_mined_positions) > 30:
                     recently_mined_positions = set(list(recently_mined_positions)[-15:])
                 
-                # Only do full vein scan occasionally to reduce delays
-                import random
-                if random.random() < 0.4:  # 40% chance each cycle
+                if random.random() < 0.4:
                     vein_mined = mine_ore_vein_continuous()
                     if vein_mined:
-                        last_ore_check = time.time() + 2.0
+                        last_ore_check_ticks = current_tick + 40  # Wait 2 seconds (40 ticks)
                     else:
-                        last_ore_check = current_time
+                        last_ore_check_ticks = current_tick
                 else:
-                    last_ore_check = current_time + 0.5  # Short delay
+                    last_ore_check_ticks = current_tick + 10  # Wait 0.5 seconds (10 ticks)
+            
+            # Small tick delay to prevent CPU overload
+            wait_ticks(1)
             
     finally:
-        # Only release keys when completely stopping the script
         m.player_press_sneak(False)
         m.player_press_forward(False)
         m.player_press_attack(False)
         m.player_press_backward(False)
         m.echo("Mining script stopped completely.")
 
-
 # Start the mining script immediately
-m.echo("Press T to stop the script.")
-
+m.echo("Strip mining with real-time block detection active.")
 mining_time()
