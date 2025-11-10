@@ -9,10 +9,6 @@ import math
 import minescript as m
 
 
-# ------------------------------
-# params
-# ------------------------------
-
 target_ids = [
     "minecraft:diamond_ore",
     "minecraft:deepslate_diamond_ore",
@@ -53,10 +49,6 @@ def check_for_t_press():
         return True
     return False
 
-
-# ------------------------------
-# gravel detection and handling (from mining_script.py)
-# ------------------------------
 
 def check_gravel_block(yaw, pitch=20):
     """Check if the targeted block at given orientation is gravel"""
@@ -122,11 +114,6 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
         m.player_press_attack(False)
     return False
 
-
-# ------------------------------
-# path clearing (from mining_script.py)
-# ------------------------------
-
 def mine_single_block_simple(x, y, z):
     """Simple block mining for path clearing"""
     if not mining_active:
@@ -175,81 +162,6 @@ def mine_single_block_simple(x, y, z):
     # Check if block was mined
     return m.getblock(x, y, z) == "minecraft:air"
 
-def clear_path_to_ore(ore_x, ore_y, ore_z):
-    """Clear blocks between player and ore - IMPROVED VERSION"""
-    if not mining_active:
-        return False
-        
-    # Check for T press
-    if check_for_t_press():
-        return False
-        
-    # Convert ore coordinates to integers
-    ore_x, ore_y, ore_z = int(ore_x), int(ore_y), int(ore_z)
-    
-    player_x, player_y, player_z = m.player_position()
-    player_x, player_y, player_z = int(player_x), int(player_y), int(player_z)
-    
-    m.echo(f"Clearing path to ore at {ore_x}, {ore_y}, {ore_z}")
-    
-    # RELEASE SNEAK when clearing path
-    m.player_press_sneak(False)
-    m.echo("Released sneak for path clearing")
-    
-    # Calculate direction and distance
-    dx = ore_x - player_x
-    dy = ore_y - player_y  
-    dz = ore_z - player_z
-    
-    distance = math.sqrt(dx*dx + dy*dy + dz*dz)
-    if distance > 6:
-        m.echo(f"Ore too far: {distance:.1f} blocks")
-        return False
-    
-    blocks_cleared = 0
-    
-    # Improved path clearing - only clear blocks that are actually in the way
-    # Use Bresenham's line algorithm for better path finding
-    steps = max(int(distance * 2), 5)  # More samples for better accuracy
-    
-    for i in range(1, steps):
-        if not mining_active:
-            break
-            
-        # Check for T press
-        if check_for_t_press():
-            break
-            
-        # Calculate position along the path with interpolation
-        progress = i / (steps - 1)
-        check_x = player_x + int(dx * progress)
-        check_y = player_y + int(dy * progress)
-        check_z = player_z + int(dz * progress)
-        
-        # Stop if we reach or pass the ore
-        if (abs(check_x - ore_x) <= 1 and abs(check_y - ore_y) <= 1 and abs(check_z - ore_z) <= 1):
-            break
-            
-        block_type = m.getblock(check_x, check_y, check_z)
-        
-        # If it's a solid block (not air, not ore), mine it
-        if (block_type and 
-            block_type != "minecraft:air" and 
-            not is_ore_block(block_type) and
-            "liquid" not in block_type.lower() and
-            "bedrock" not in block_type.lower()):
-            
-            m.echo(f"Clearing path block: {block_type} at {check_x}, {check_y}, {check_z}")
-            
-            # Use simple mining for path blocks
-            if mine_single_block_simple(check_x, check_y, check_z):
-                blocks_cleared += 1
-                # Small delay after clearing a block
-                time.sleep(0.2)
-    
-    m.echo(f"Path clearing complete. Cleared {blocks_cleared} blocks.")
-    return blocks_cleared > 0
-
 def is_ore_block(block_type):
     """Check if a block is an ore"""
     if not block_type:
@@ -280,97 +192,6 @@ def is_ore_block(block_type):
     
     return False
 
-
-# ------------------------------
-# strip mining cycle (from mining_script.py)
-# ------------------------------
-
-def perform_strip_mining_cycle():
-    """Perform one complete strip mining cycle with gravel detection"""
-    if not mining_active:
-        return False
-        
-    # REGULAR MINING MODE - Press sneak for safety
-    if mining_active:
-        yaw, pitch = m.player_orientation()
-        m.player_press_sneak(True)
-    
-    if mining_active:
-        m.player_press_forward(True)
-    
-    mining_steps = [
-        (yaw, 0, False), (yaw, 20, True), (yaw, 0, False), (yaw, 20, True)
-    ]
-    
-    for step_yaw, step_pitch, check_gravel in mining_steps:
-        if not mining_active:
-            break
-        if check_for_t_press():
-            break
-        mine_at_angle(step_yaw, step_pitch, check_gravel)
-    
-    if mining_active:
-        m.player_press_forward(False)
-    
-    if mining_active:
-        mining_steps_2 = [(yaw, 0, False), (yaw, 20, True)]
-        for step_yaw, step_pitch, check_gravel in mining_steps_2:
-            if not mining_active:
-                break
-            if check_for_t_press():
-                break
-            mine_at_angle(step_yaw, step_pitch, check_gravel)
-    
-    if mining_active:
-        yaw, pitch = m.player_orientation()
-    
-    if mining_active:
-        m.player_press_forward(True)
-    
-    if mining_active:
-        mining_steps_3 = [(yaw, 0, False), (yaw, 20, True), (yaw, 0, False), (yaw, 20, True)]
-        for step_yaw, step_pitch, check_gravel in mining_steps_3:
-            if not mining_active:
-                break
-            if check_for_t_press():
-                break
-            mine_at_angle(step_yaw, step_pitch, check_gravel)
-    
-    if mining_active:
-        m.player_press_forward(False)
-    
-    if mining_active:
-        mining_steps_4 = [(yaw, 0, False), (yaw, 20, True)]
-        for step_yaw, step_pitch, check_gravel in mining_steps_4:
-            if not mining_active:
-                break
-            if check_for_t_press():
-                break
-            mine_at_angle(step_yaw, step_pitch, check_gravel)
-    
-    if mining_active:
-        m.player_press_forward(True)
-        for i in range(3): 
-            if not mining_active:
-                m.player_press_forward(False)
-                break
-            if check_for_t_press():
-                m.player_press_forward(False)
-                break
-            time.sleep(0.1)
-        if mining_active:
-            m.player_press_forward(False)
-    
-    if mining_active:
-        m.echo("Mining cycle complete")
-        
-    return True
-
-
-# ------------------------------
-# CONTINUOUS ORE VEIN MINING
-# ------------------------------
-
 def mine_ore_vein_continuous():
     """Continuously mine all visible ores in a vein before returning to strip mining"""
     global previous_target
@@ -382,15 +203,12 @@ def mine_ore_vein_continuous():
     original_position = m.player_position()
     original_orientation = m.player_orientation()
     
-    m.echo("Starting continuous ore vein mining...")
-    
     ores_mined = 0
     max_ores_in_vein = 20  # Maximum ores to mine in one vein to prevent going too far
     
     while mining_active and ores_mined < max_ores_in_vein:
         px, py, pz = m.player_position()
         
-        m.echo("Scanning for nearby ores...")
         occluders = get_area(position=(px, py + 1.62, pz))
 
         # Filter out recently mined positions from occluders
@@ -408,7 +226,6 @@ def mine_ore_vein_continuous():
         )
 
         if aim_result is None:
-            m.echo("No more visible ores found in this vein.")
             break
             
         previous_target = aim_result.optimal_pos
@@ -416,21 +233,14 @@ def mine_ore_vein_continuous():
         
         # Skip if this position was recently mined
         if (x, y, z) in recently_mined_positions:
-            m.echo(f"Skipping recently mined ore at {x}, {y}, {z}")
             continue
         
-        # Clear path to ore first
-        m.echo(f"Found ore at {x}, {y}, {z}. Clearing path...")
-        path_cleared = clear_path_to_ore(x, y, z)
-        
-        if not path_cleared and not is_player_close_to_ore(x, y, z):
-            m.echo(f"Could not clear path to ore at {x}, {y}, {z}. Skipping.")
+        if not is_player_close_to_ore(x, y, z):
             recently_mined_positions.add((x, y, z))
             continue
         
         # RELEASE SNEAK for ore mining
         m.player_press_sneak(False)
-        m.echo("Released sneak for ore mining")
         
         # Aim at the ore
         aim.player_aim.smooth_rotate_to(aim_result.target_angle[0], aim_result.target_angle[1], duration=0.3)
@@ -438,14 +248,12 @@ def mine_ore_vein_continuous():
         
         # Get the ore type for logging
         ore_type = m.getblock(x, y, z)
-        m.echo(f"Ore type: {ore_type}")
         
         # Mine the ore completely
         m.player_press_attack(True)
         
         # Use time-based mining instead of block change detection
         mining_time = get_mining_time_for_ore(ore_type)
-        m.echo(f"Mining for {mining_time} seconds...")
         
         start_time = time.time()
         ore_mined = False
@@ -466,10 +274,8 @@ def mine_ore_vein_continuous():
         m.player_press_attack(False)
         
         if ore_mined:
-            m.echo(f"✓ SUCCESS: Mined {ore_type}!")
             ores_mined += 1
             recently_mined_positions.add((x, y, z))
-            m.echo(f"Ores mined in this vein: {ores_mined}")
             
             # Small delay before looking for next ore
             time.sleep(0.5)
@@ -480,8 +286,6 @@ def mine_ore_vein_continuous():
     
     # ALWAYS restore original orientation and position after ore vein mining
     if mining_active:
-        m.echo(f"Ore vein mining complete. Mined {ores_mined} ores.")
-        m.echo("Restoring original position and orientation...")
         return_to_position(original_position, original_orientation)
     
     return ores_mined > 0
@@ -540,26 +344,43 @@ def return_to_position(target_position, target_orientation):
         (target_z - current_z)**2
     )
     
-    # If we're close enough, just set orientation
-    if distance < 2:
+    # If we're close enough (within 1 block), just set orientation and return
+    # This prevents unnecessary backward movement
+    if distance < 1.5:
         m.player_set_orientation(target_orientation[0], target_orientation[1])
-        time.sleep(0.5)
-        m.echo(f"Restored orientation: {target_orientation}")
+        time.sleep(0.3)
         return
     
-    # Otherwise, look toward target and move
-    dx = target_x - current_x
-    dz = target_z - current_z
+    # Only move back if we're significantly ahead of the target position
+    # Check if we're mostly in front of the target (in the mining direction)
+    dx = current_x - target_x
+    dz = current_z - target_z
+    
+    # Get the mining direction from the target orientation
+    mining_yaw = target_orientation[0]
+    mining_dir_x = -math.sin(math.radians(mining_yaw))
+    mining_dir_z = math.cos(math.radians(mining_yaw))
+    
+    # Calculate how far we are in the mining direction
+    dot_product = dx * mining_dir_x + dz * mining_dir_z
+    
+    if dot_product > 0.5:  
+        # Just reorient and continue from current position
+        m.player_set_orientation(target_orientation[0], target_orientation[1])
+        time.sleep(0.3)
+        return
+    
+    # Otherwise, look toward target and move (only if really needed)
     yaw = math.degrees(math.atan2(-dx, dz))
     
     m.player_set_orientation(yaw, 0)
-    time.sleep(0.5)
+    time.sleep(0.3)
     
-    # Move toward target
+    # Move toward target but only for a short time
     m.player_press_forward(True)
     
-    while mining_active and distance > 1:
-        # Check for T press
+    start_time = time.time()
+    while mining_active and distance > 1.0 and (time.time() - start_time) < 2.0:  # Max 2 seconds
         if check_for_t_press():
             m.player_press_forward(False)
             return
@@ -573,7 +394,7 @@ def return_to_position(target_position, target_orientation):
             (target_z - current_z)**2
         )
         
-        if distance <= 1:
+        if distance <= 1.0:
             break
             
         time.sleep(0.1)
@@ -583,12 +404,229 @@ def return_to_position(target_position, target_orientation):
     # Set final orientation
     if mining_active:
         m.player_set_orientation(target_orientation[0], target_orientation[1])
-        time.sleep(0.5)
-        m.echo(f"Restored orientation: {target_orientation}")
+        time.sleep(0.3)
+
+
+def perform_strip_mining_with_ore_scanning():
+    """Perform strip mining while scanning for ores between steps"""
+    if not mining_active:
+        return False
+        
+    # Save original position and orientation at start of cycle
+    original_position = m.player_position()
+    original_orientation = m.player_orientation()
+    
+    
+    if mining_active:
+        yaw, pitch = m.player_orientation()
+        m.player_press_sneak(True)
+        time.sleep(0.1)
+    
+    if mining_active:
+        m.player_press_forward(True)
+    
+    # First set of mining steps with ore scanning
+    mining_steps = [
+        (yaw, 0, False), (yaw, 20, True), (yaw, 0, False), (yaw, 20, True)
+    ]
+    
+    for step_yaw, step_pitch, check_gravel in mining_steps:
+        if not mining_active:
+            break
+        if check_for_t_press():
+            break
+        mine_at_angle(step_yaw, step_pitch, check_gravel)
+        
+        # SCAN FOR ORES AFTER EACH MINING STEP
+        if mining_active and quick_ore_scan():
+            # Stop moving and restore position after ore mining
+            m.player_press_forward(False)
+            # DON'T release sneak here - keep it pressed for continuity
+            return_to_position(original_position, original_orientation)
+            return True  # Return True to indicate ore mining happened
+    
+    if mining_active:
+        m.player_press_forward(False)
+    
+    # Second set of mining steps with ore scanning
+    if mining_active:
+        mining_steps_2 = [(yaw, 0, False), (yaw, 20, True)]
+        for step_yaw, step_pitch, check_gravel in mining_steps_2:
+            if not mining_active:
+                break
+            if check_for_t_press():
+                break
+            mine_at_angle(step_yaw, step_pitch, check_gravel)
+            
+            # SCAN FOR ORES AFTER EACH MINING STEP
+            if mining_active and quick_ore_scan():
+                # Stop moving and restore position after ore mining
+                m.player_press_forward(False)
+                # DON'T release sneak here - keep it pressed for continuity
+                return_to_position(original_position, original_orientation)
+                return True  # Return True to indicate ore mining happened
+    
+    if mining_active:
+        yaw, pitch = m.player_orientation()
+    
+    if mining_active:
+        m.player_press_forward(True)
+    
+    # Third set of mining steps with ore scanning
+    if mining_active:
+        mining_steps_3 = [(yaw, 0, False), (yaw, 20, True), (yaw, 0, False), (yaw, 20, True)]
+        for step_yaw, step_pitch, check_gravel in mining_steps_3:
+            if not mining_active:
+                break
+            if check_for_t_press():
+                break
+            mine_at_angle(step_yaw, step_pitch, check_gravel)
+            
+            # SCAN FOR ORES AFTER EACH MINING STEP
+            if mining_active and quick_ore_scan():
+                # Stop moving and restore position after ore mining
+                m.player_press_forward(False)
+                # DON'T release sneak here - keep it pressed for continuity
+                return_to_position(original_position, original_orientation)
+                return True  # Return True to indicate ore mining happened
+    
+    if mining_active:
+        m.player_press_forward(False)
+    
+    # Fourth set of mining steps with ore scanning
+    if mining_active:
+        mining_steps_4 = [(yaw, 0, False), (yaw, 20, True)]
+        for step_yaw, step_pitch, check_gravel in mining_steps_4:
+            if not mining_active:
+                break
+            if check_for_t_press():
+                break
+            mine_at_angle(step_yaw, step_pitch, check_gravel)
+            
+            # SCAN FOR ORES AFTER EACH MINING STEP
+            if mining_active and quick_ore_scan():
+                # Stop moving and restore position after ore mining
+                m.player_press_forward(False)
+                # DON'T release sneak here - keep it pressed for continuity
+                return_to_position(original_position, original_orientation)
+                return True  # Return True to indicate ore mining happened
+    
+    if mining_active:
+        m.player_press_forward(True)
+        for i in range(3): 
+            if not mining_active:
+                m.player_press_forward(False)
+                break
+            if check_for_t_press():
+                m.player_press_forward(False)
+                break
+            time.sleep(0.1)
+        if mining_active:
+            m.player_press_forward(False)
+    
+    
+    
+    return False  # Return False if no ores were found during this cycle
+
+def quick_ore_scan():
+    """Quick scan for ores - mines all visible ores before returning (same behavior as original)"""
+    global previous_target
+    
+    if not mining_active:
+        return False
+
+    # Save original position and orientation for this quick scan session
+    original_position = m.player_position()
+    original_orientation = m.player_orientation()
+    
+    ores_mined = 0
+    max_quick_ores = 10  # Maximum ores to mine in quick scan to prevent going too far
+    
+    # Use a temporary set for this quick scan session only
+    temp_mined_positions = set()
+    
+    while mining_active and ores_mined < max_quick_ores:
+        px, py, pz = m.player_position()
+        
+        # Quick scan
+        occluders = get_area(position=(px, py + 1.62, pz))
+
+        # Filter out both permanently and temporarily mined positions
+        filtered_occluders = []
+        for occluder in occluders:
+            pos, base, simple, meta = occluder
+            if pos not in recently_mined_positions and pos not in temp_mined_positions:
+                filtered_occluders.append(occluder)
+        
+        aim_result = scan_targets(
+            position=(px, py + 1.62, pz), 
+            target_ids=target_ids, 
+            occluders=filtered_occluders, 
+            previous_target=previous_target
+        )
+
+        if aim_result is None:
+            # No more visible ores found in this quick scan session
+            break
+            
+        previous_target = aim_result.optimal_pos
+        x, y, z = aim_result.world_pos
+        
+        # STOP MOVEMENT IMMEDIATELY before ore mining
+        m.player_press_forward(False)
+        m.player_press_sneak(False)
+        time.sleep(0.1)  # Small delay to ensure movement stops
+        
+        # Quick aim and mine
+        aim.player_aim.smooth_rotate_to(aim_result.target_angle[0], aim_result.target_angle[1], duration=0.2)
+        time.sleep(0.3)
+        
+        ore_type = m.getblock(x, y, z)
+        
+        # Mine the ore
+        m.player_press_attack(True)
+        mining_time = get_mining_time_for_ore(ore_type)
+        
+        start_time = time.time()
+        ore_mined = False
+        
+        while mining_active and (time.time() - start_time) < mining_time:
+            if check_for_t_press():
+                break
+            current_block = m.getblock(x, y, z)
+            if current_block == "minecraft:air":
+                ore_mined = True
+                break
+            time.sleep(0.1)
+        
+        m.player_press_attack(False)
+        
+        if ore_mined:
+            ores_mined += 1
+            # Add to both temporary (for this session) and permanent tracking
+            temp_mined_positions.add((x, y, z))
+            recently_mined_positions.add((x, y, z))
+            
+            
+            # Small delay before looking for next ore
+            time.sleep(0.5)
+        else:
+            m.echo(f"✗ FAILED: Could not mine {ore_type} completely")
+            # Still mark it as mined to avoid retrying
+            temp_mined_positions.add((x, y, z))
+            recently_mined_positions.add((x, y, z))
+            break
+    
+    # If we mined any ores, restore original position before returning
+    if ores_mined > 0 and mining_active:
+        return_to_position(original_position, original_orientation)
+        return True
+    
+    return False
 
 
 def mining_time():
-    """Main mining loop that combines strip mining with ore detection"""
+    """Main mining loop that combines strip mining with real-time ore detection"""
     global mining_active, previous_target, recently_mined_positions
     
     mining_active = True
@@ -598,8 +636,7 @@ def mining_time():
     ore_check_interval = 2.0  # Check for ores every 2 seconds
     last_chat_check = time.time()
     
-    m.echo("Integrated mining script started!")
-    m.echo("Press T to stop. Will perform strip mining and automatically detect/mine ore veins.")
+    m.echo("Press T to stop. Will perform strip mining with real-time ore detection.")
     
     try:
         while mining_active:
@@ -611,17 +648,29 @@ def mining_time():
                     break
                 last_chat_check = current_time
             
-            # Check for ores periodically
+            # Perform strip mining with integrated ore scanning
+            ore_mined_in_cycle = perform_strip_mining_with_ore_scanning()
+            
+            # If ores were mined during strip mining, reset the ore check timer
+            if ore_mined_in_cycle:
+                last_ore_check = time.time() + 2.0  # Wait 2 seconds before next full scan
+                continue
+            
+            # Check for ores periodically (full vein scan)
             if current_time - last_ore_check > ore_check_interval:
+                # Clear recently mined positions less frequently to allow rediscovery
+                # Only clear if we haven't found ores in a while
+                if len(recently_mined_positions) > 50:  # If we've mined a lot, clear some
+                    # Keep only the most recent 20 positions
+                    if len(recently_mined_positions) > 20:
+                        recently_mined_positions = set(list(recently_mined_positions)[-20:])
+                
                 vein_mined = mine_ore_vein_continuous()
                 if vein_mined:
                     # If we mined a vein, wait a bit before continuing strip mining
-                    last_ore_check = time.time() + 5.0
-                    continue
-                last_ore_check = current_time
-            
-            # Perform regular strip mining cycle
-            perform_strip_mining_cycle()
+                    last_ore_check = time.time() + 3.0
+                else:
+                    last_ore_check = current_time
             
     finally:
         # Always release all keys when stopping
@@ -630,9 +679,10 @@ def mining_time():
         m.player_press_attack(False)
         m.echo("Mining script stopped completely.")
 
+
 # Start the mining script immediately
 m.echo("Starting integrated mining script...")
-m.echo("Strip mining with continuous ore vein detection active.")
+m.echo("Strip mining with real-time ore detection active.")
 m.echo("Press T to stop the script.")
 
 mining_time()
