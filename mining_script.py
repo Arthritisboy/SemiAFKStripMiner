@@ -64,20 +64,18 @@ def check_for_t_press():
 
 
 def gravel_check(yaw, pitch):
-    """Fast gravel check for both pitch angles (0 and 20)"""
+    """Ultra-fast gravel check with instant rotation"""
     if not mining_active:
         return False
         
-    # Set orientation to ensure we're looking at the right spot
-    m.player_set_orientation(yaw, pitch)
-    wait_ticks(1)  # 1 tick for orientation to settle
+    # Use instant rotation for maximum speed
+    aim.player_aim.instant_rotate_to(yaw, pitch)
+    # No wait needed for instant rotation
     
     targeted_block = m.player_get_targeted_block(max_distance=5)
     
     if targeted_block and targeted_block.type:
         is_gravel = "gravel" in targeted_block.type.lower()
-        if is_gravel:
-            m.echo(f"Gravel detected at pitch {pitch}! Switching to shovel.")
         return is_gravel
     return False
 
@@ -175,7 +173,7 @@ def get_facing_direction(yaw):
         return "east"   # +X
 
 def lock_to_cardinal_direction():
-    """Lock player to nearest cardinal direction and center pitch for straight mining"""
+    """Lock player to nearest cardinal direction with instant rotation"""
     if not mining_active:
         return
     
@@ -199,8 +197,8 @@ def lock_to_cardinal_direction():
     # Center pitch to 0 (straight ahead)
     target_pitch = 0
     
-    # Set the locked orientation
-    m.player_set_orientation(target_yaw, target_pitch)
+    # Use instant rotation
+    aim.player_aim.instant_rotate_to(target_yaw, target_pitch)
     return target_yaw, target_pitch
 
 def emergency_lava_stop():
@@ -233,11 +231,13 @@ def check_emergencies():
     return False
 
 def mine_at_angle(yaw, pitch, check_gravel=True):
-    """Mine at specific angle using targeting system to detect when block breaks"""
+    """Mine at specific angle using ultra-fast aiming"""
     if not mining_active:
         return False
         
-    m.player_set_orientation(yaw, pitch)
+    # Use hybrid rotation - instant for small moves, fast smooth for larger
+    aim.player_aim.hybrid_rotate_to(yaw, pitch, fast_threshold=15.0)
+    wait_ticks(1)  # Only 1 tick for aiming to settle
 
     # Check for gravel initially for both pitch angles
     if check_gravel and mining_active and pitch in [0, 20]:
@@ -252,7 +252,6 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
         if not targeted_block or not targeted_block.position:
             # No block targeted, just do a quick mine
             m.player_press_attack(True)
-            
             return False
             
         target_x, target_y, target_z = targeted_block.position
@@ -262,33 +261,36 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
         if not original_block_type or original_block_type == "minecraft:air":
             return False
         
-        # Mine until the block breaks, with continuous gravel checking for both pitches
+        # Mine with ultra-fast block detection
         m.player_press_attack(True)
         
         start_ticks = 0
-        max_mining_ticks = 60  # Maximum 3 seconds in ticks (60 ticks)
+        max_mining_ticks = 30  # Reduced to 1.5 seconds max
+        
+        block_broken = False
         
         while mining_active and start_ticks < max_mining_ticks:
             if check_for_t_press():
-                m.player_press_attack(False)  # Ensure attack is released on exit
                 break
                 
-            # CONTINUOUS GRAVEL CHECK - if targeted block changes to gravel for either pitch
+            # CONTINUOUS GRAVEL CHECK
             if check_gravel and pitch in [0, 20]:
                 current_targeted_block = m.player_get_targeted_block(max_distance=5)
                 if current_targeted_block and current_targeted_block.type and "gravel" in current_targeted_block.type.lower():
-                    m.player_press_attack(False)  # Stop current mining
-                    wait_ticks(1)  # 1 tick pause
-                    gravel_mine()  # Use shovel for gravel
+                    m.player_press_attack(False)
+                    wait_ticks(1)
+                    gravel_mine()
                     return True
                 
-            # Check if the block is now air (broken)
+            # Check if block is broken
             current_block_type = m.getblock(target_x, target_y, target_z)
             if current_block_type == "minecraft:air":
+                block_broken = True
                 break
                 
-            wait_ticks(1)  # Wait 1 tick between checks
+            wait_ticks(1)
             start_ticks += 1
+        
         
         
     return False
@@ -422,7 +424,7 @@ def mine_ore_vein_continuous():
         m.player_press_sneak(False)
         
         # Aim at the ore
-        aim.player_aim.smooth_rotate_to(aim_result.target_angle[0], aim_result.target_angle[1], duration=0.3)
+        aim.player_aim.hybrid_rotate_to(aim_result.target_angle[0], aim_result.target_angle[1], fast_threshold=15.0)
         time.sleep(0.5)
         
         # Get the ore type for logging
@@ -591,7 +593,7 @@ def return_to_position(target_position, target_orientation):
 
 
 def perform_strip_mining():
-    """Perform strip mining using targeting system for faster block detection"""
+    """Perform strip mining using smooth aiming system for better block detection"""
     if not mining_active:
         return False
         
@@ -601,11 +603,10 @@ def perform_strip_mining():
     if mining_active:
         m.player_press_sneak(True)
         wait_ticks(1)  # 1 tick
-    
-    if mining_active:
         m.player_press_forward(True)
     
-    # First set of mining steps with targeting (4 steps)
+    
+    # First set of mining steps with smooth aiming (4 steps)
     mining_steps = [
         (locked_yaw, 0, True), (locked_yaw, 20, True), (locked_yaw, 0, True), (locked_yaw, 20, True)
     ]
@@ -623,7 +624,7 @@ def perform_strip_mining():
             emergency_lava_stop()
             return False
             
-        # Use targeting-based mining with gravel checking for both pitches
+        # Use smooth aiming-based mining with gravel checking for both pitches
         mine_at_angle(step_yaw, step_pitch, check_gravel)
         
         # QUICK ore scan
@@ -634,7 +635,7 @@ def perform_strip_mining():
     if mining_active:
         m.player_press_forward(False)
     
-    # Second set of mining steps with targeting (2 steps)
+    # Second set of mining steps with smooth aiming (2 steps)
     if mining_active:
         mining_steps_2 = [(locked_yaw, 0, True), (locked_yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_2:
@@ -656,7 +657,7 @@ def perform_strip_mining():
                 m.player_press_forward(False)
                 return True
     
-    # Third set of mining steps with targeting (4 steps)
+    # Third set of mining steps with smooth aiming (4 steps)
     if mining_active:
         m.player_press_forward(True)
         mining_steps_3 = [(locked_yaw, 0, True), (locked_yaw, 20, True), (locked_yaw, 0, True), (locked_yaw, 20, True)]
@@ -682,7 +683,7 @@ def perform_strip_mining():
     if mining_active:
         m.player_press_forward(False)
     
-    # Fourth set of mining steps with targeting (2 steps)
+    # Fourth set of mining steps with smooth aiming (2 steps)
     if mining_active:
         mining_steps_4 = [(locked_yaw, 0, True), (locked_yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_4:
@@ -704,9 +705,14 @@ def perform_strip_mining():
                 m.player_press_forward(False)
                 return True
     
-    # Final forward movement (3 steps) - RETURN TO CENTER PITCH AFTER CYCLE
+    # FINAL STEP - Return to center pitch with smooth aiming
     if mining_active:
         m.player_press_attack(False)
+        aim.player_aim.smooth_rotate_to(locked_yaw, 0, duration=0.1)
+        
+    
+    # Final forward movement (3 steps)
+    if mining_active:
         m.player_press_forward(True)
         for i in range(3): 
             if not mining_active:
@@ -724,18 +730,16 @@ def perform_strip_mining():
                 return False
                 
             wait_ticks(1)  # 1 tick per forward step
-
-
-        # CRITICAL: Return to center pitch and ensure attack is released at end of cycle
+        
+        # Clean up - ensure attack is released
         m.player_press_forward(False)
-        m.player_press_attack(False)  # Double ensure attack is released
-        m.player_set_orientation(locked_yaw, 0)  # Return to center pitch
+        m.player_press_attack(False)  # Ensure attack is released
     
     return False
 
 
 def quick_ore_scan():
-    """Quick scan for ores using targeting system - RETURNS TO CURRENT ORIENTATION"""
+    """Quick scan for ores using ultra-fast aiming"""
     global previous_target
     
     if not mining_active:
@@ -745,7 +749,7 @@ def quick_ore_scan():
     current_orientation = m.player_orientation()
     
     ores_mined = 0
-    max_quick_ores = 5
+    max_quick_ores = 5  # Reduced from 5
     
     temp_mined_positions = set()
     
@@ -776,11 +780,10 @@ def quick_ore_scan():
         # STOP MOVEMENT before ore mining
         m.player_press_forward(False)
         m.player_press_sneak(False)
-        wait_ticks(1)  # 1 tick
         
-        # Quick aim and mine
-        aim.player_aim.smooth_rotate_to(aim_result.target_angle[0], aim_result.target_angle[1], duration=0.15)
-        wait_ticks(4)  # 4 ticks = 0.2 seconds
+        
+        aim.player_aim.hybrid_rotate_to(aim_result.target_angle[0], aim_result.target_angle[1], fast_threshold=15.0)
+        wait_ticks(1)  # Only 1 tick
         
         ore_type = m.getblock(x, y, z)
         
@@ -788,7 +791,7 @@ def quick_ore_scan():
         m.player_press_attack(True)
         
         start_ticks = 0
-        max_mining_ticks = int(get_mining_time_for_ore(ore_type) * 20 * 0.7)  # Convert to ticks
+        max_mining_ticks = int(get_mining_time_for_ore(ore_type) * 20 * 0.5)  # 50% faster mining
         
         ore_mined = False
         
@@ -799,7 +802,7 @@ def quick_ore_scan():
             if current_block == "minecraft:air":
                 ore_mined = True
                 break
-            wait_ticks(1)  # Check every tick
+            wait_ticks(1)
             start_ticks += 1
             
         m.player_press_attack(False)
@@ -808,18 +811,18 @@ def quick_ore_scan():
             ores_mined += 1
             temp_mined_positions.add((x, y, z))
             recently_mined_positions.add((x, y, z))
-            wait_ticks(6)  # 6 ticks = 0.3 seconds
+            wait_ticks(3)  # Reduced from 6 ticks
         else:
             temp_mined_positions.add((x, y, z))
             recently_mined_positions.add((x, y, z))
             break
     
-    # After ore mining, return to CURRENT orientation and re-enable sneak
+    # After ore mining, return to CURRENT orientation
     if ores_mined > 0 and mining_active:
-        m.player_set_orientation(current_orientation[0], current_orientation[1])
-        wait_ticks(2)  # 2 ticks = 0.1 seconds
+        aim.player_aim.hybrid_rotate_to(current_orientation[0], current_orientation[1], fast_threshold=15.0)
+        wait_ticks(1)
         m.player_press_sneak(True)
-        wait_ticks(2)  # 2 ticks = 0.1 seconds
+        wait_ticks(1)
         return True
     
     return False
