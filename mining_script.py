@@ -57,7 +57,7 @@ def check_for_t_press():
     """Check if T key is pressed to stop mining"""
     screen = m.screen_name()
     if screen and "chat" in screen.lower():
-        m.echo("T pressed! Stopping mining script.")
+        
         stop_mining()
         return True
     return False
@@ -174,6 +174,35 @@ def get_facing_direction(yaw):
     else:  # 225 <= normalized_yaw < 315
         return "east"   # +X
 
+def lock_to_cardinal_direction():
+    """Lock player to nearest cardinal direction and center pitch for straight mining"""
+    if not mining_active:
+        return
+    
+    current_yaw, current_pitch = m.player_orientation()
+    
+    # Normalize yaw to 0-360
+    normalized_yaw = current_yaw % 360
+    if normalized_yaw < 0:
+        normalized_yaw += 360
+    
+    # Lock to nearest cardinal direction
+    if 315 <= normalized_yaw or normalized_yaw < 45:
+        target_yaw = 0    # South
+    elif 45 <= normalized_yaw < 135:
+        target_yaw = 90   # West  
+    elif 135 <= normalized_yaw < 225:
+        target_yaw = 180  # North
+    else:  # 225 <= normalized_yaw < 315
+        target_yaw = 270  # East
+    
+    # Center pitch to 0 (straight ahead)
+    target_pitch = 0
+    
+    # Set the locked orientation
+    m.player_set_orientation(target_yaw, target_pitch)
+    return target_yaw, target_pitch
+
 def emergency_lava_stop():
     """Emergency stop procedure when lava is detected - using ticks"""
     global mining_active
@@ -223,8 +252,7 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
         if not targeted_block or not targeted_block.position:
             # No block targeted, just do a quick mine
             m.player_press_attack(True)
-            wait_ticks(4)  # 4 ticks = 0.2 seconds
-            m.player_press_attack(False)
+            
             return False
             
         target_x, target_y, target_z = targeted_block.position
@@ -242,6 +270,7 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
         
         while mining_active and start_ticks < max_mining_ticks:
             if check_for_t_press():
+                m.player_press_attack(False)  # Ensure attack is released on exit
                 break
                 
             # CONTINUOUS GRAVEL CHECK - if targeted block changes to gravel for either pitch
@@ -261,7 +290,6 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
             wait_ticks(1)  # Wait 1 tick between checks
             start_ticks += 1
         
-        m.player_press_attack(False)
         
     return False
 
@@ -567,17 +595,19 @@ def perform_strip_mining():
     if not mining_active:
         return False
         
+    # Lock to cardinal direction and center pitch at start of each cycle
+    locked_yaw, locked_pitch = lock_to_cardinal_direction()
+    
     if mining_active:
-        yaw, pitch = m.player_orientation()
         m.player_press_sneak(True)
         wait_ticks(1)  # 1 tick
     
     if mining_active:
         m.player_press_forward(True)
     
-    # First set of mining steps with targeting (4 steps) - enable gravel check for both pitches
+    # First set of mining steps with targeting (4 steps)
     mining_steps = [
-        (yaw, 0, True), (yaw, 20, True), (yaw, 0, True), (yaw, 20, True)  # All check for gravel now
+        (locked_yaw, 0, True), (locked_yaw, 20, True), (locked_yaw, 0, True), (locked_yaw, 20, True)
     ]
     
     for step_yaw, step_pitch, check_gravel in mining_steps:
@@ -599,15 +629,14 @@ def perform_strip_mining():
         # QUICK ore scan
         if mining_active and ore_check():
             m.player_press_forward(False)
-            # No need to return to position - ore_check already handles orientation
             return True
     
     if mining_active:
         m.player_press_forward(False)
     
-    # Second set of mining steps with targeting (2 steps) - enable gravel check for both pitches
+    # Second set of mining steps with targeting (2 steps)
     if mining_active:
-        mining_steps_2 = [(yaw, 0, True), (yaw, 20, True)]  # Both check for gravel
+        mining_steps_2 = [(locked_yaw, 0, True), (locked_yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_2:
             if not mining_active:
                 break
@@ -627,15 +656,10 @@ def perform_strip_mining():
                 m.player_press_forward(False)
                 return True
     
-    if mining_active:
-        yaw, pitch = m.player_orientation()
-    
+    # Third set of mining steps with targeting (4 steps)
     if mining_active:
         m.player_press_forward(True)
-    
-    # Third set of mining steps with targeting (4 steps) - enable gravel check for both pitches
-    if mining_active:
-        mining_steps_3 = [(yaw, 0, True), (yaw, 20, True), (yaw, 0, True), (yaw, 20, True)]  # All check for gravel
+        mining_steps_3 = [(locked_yaw, 0, True), (locked_yaw, 20, True), (locked_yaw, 0, True), (locked_yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_3:
             if not mining_active:
                 break
@@ -658,9 +682,9 @@ def perform_strip_mining():
     if mining_active:
         m.player_press_forward(False)
     
-    # Fourth set of mining steps with targeting (2 steps) - enable gravel check for both pitches
+    # Fourth set of mining steps with targeting (2 steps)
     if mining_active:
-        mining_steps_4 = [(yaw, 0, True), (yaw, 20, True)]  # Both check for gravel
+        mining_steps_4 = [(locked_yaw, 0, True), (locked_yaw, 20, True)]
         for step_yaw, step_pitch, check_gravel in mining_steps_4:
             if not mining_active:
                 break
@@ -680,8 +704,9 @@ def perform_strip_mining():
                 m.player_press_forward(False)
                 return True
     
-    # Final forward movement (3 steps)
+    # Final forward movement (3 steps) - RETURN TO CENTER PITCH AFTER CYCLE
     if mining_active:
+        m.player_press_attack(False)
         m.player_press_forward(True)
         for i in range(3): 
             if not mining_active:
@@ -699,8 +724,12 @@ def perform_strip_mining():
                 return False
                 
             wait_ticks(1)  # 1 tick per forward step
-        if mining_active:
-            m.player_press_forward(False)
+
+
+        # CRITICAL: Return to center pitch and ensure attack is released at end of cycle
+        m.player_press_forward(False)
+        m.player_press_attack(False)  # Double ensure attack is released
+        m.player_set_orientation(locked_yaw, 0)  # Return to center pitch
     
     return False
 
@@ -898,6 +927,9 @@ def mining_time():
     previous_target = m.player_position()
     recently_mined_positions.clear()
     
+    # Lock to cardinal direction at start
+    lock_to_cardinal_direction()
+    
     # Convert time intervals to tick intervals
     ore_check_interval_ticks = 30  # 1.5 seconds in ticks
     chat_check_interval_ticks = 3  # 0.15 seconds in ticks
@@ -911,7 +943,7 @@ def mining_time():
     m.player_press_sneak(True)
     wait_ticks(2)  # 2 ticks = 0.1 seconds
     
-    m.echo("Press T to stop. TICK-BASED strip mining active.")
+    m.echo("Press T to stop.")
     
     try:
         while mining_active:
@@ -963,5 +995,4 @@ def mining_time():
         m.echo("Mining script stopped completely.")
 
 # Start the mining script immediately
-m.echo("Strip mining with real-time block detection active.")
 mining_time()
