@@ -216,7 +216,7 @@ def check_and_recover_from_fall(locked_yaw, locked_pitch):
             
             # Check if we recovered
             current_y = m.player_position()[1]
-            if current_y == original_y_level:  
+            if current_y == original_y_level:
                 recovery_successful = True
                 m.echo("✅ Successfully recovered from fall! Continuing mining.")
                 break
@@ -231,14 +231,16 @@ def check_and_recover_from_fall(locked_yaw, locked_pitch):
         fall_recovery_active = False
         
         if recovery_successful:
-            # Resume mining position
+            # Resume mining position and movement
             time.sleep(0.5)  # Let player stabilize
             m.player_press_sneak(True)
             time.sleep(0.2)
-            # Update original Y level to new position if close enough
+            m.player_press_forward(True)
+            
+            # Update original Y level to new position
             current_y = m.player_position()[1]
             original_y_level = current_y
-            m.echo(f"📏 Updated Y level to: {original_y_level:.1f}")
+            m.echo(f"📏 Updated Y level to: {original_y_level:.1f} - RESUMING FORWARD MOVEMENT")
             return True
         else:
             current_y = m.player_position()[1]
@@ -735,20 +737,28 @@ def perform_strip_mining():
     if mining_active:
         m.player_press_forward(True)
     
-    # First set of mining steps with targeting (4 steps)
-    mining_steps = [
-        (locked_yaw, 0, True), (locked_yaw, 20, True), (locked_yaw, 0, True), (locked_yaw, 20, True)
-    ]
+    # Continuous mining loop with just the two pitch angles
+    current_pitch_index = 0
+    pitch_angles = [0, 20]  
     
-    for step_yaw, step_pitch, check_gravel in mining_steps:
-        if not mining_active:
-            break
+    # Stuck detection variables
+    movement_check_start = time.time()
+    last_position = m.player_position()
+    consecutive_stuck_checks = 0
+    stuck_threshold = 3
+    
+    while mining_active:
         if check_for_t_press():
             break
         
         # CONTINUOUS FALL DETECTION CHECK
         if not monitor_fall_continuously(locked_yaw, locked_pitch):
-            return False
+            # After fall recovery, RESET stuck detection
+            last_position = m.player_position()
+            movement_check_start = time.time()
+            consecutive_stuck_checks = 0
+            m.echo("🔄 Reset stuck detection after fall recovery")
+            continue
         
         # LAVA CHECK
         if check_for_lava():
@@ -757,113 +767,84 @@ def perform_strip_mining():
             emergency_lava_stop()
             return False
             
-        mine_at_angle(step_yaw, step_pitch, check_gravel)
+        # Get current pitch angle
+        step_pitch = pitch_angles[current_pitch_index]
         
+        # Mine at current angle
+        mine_at_angle(locked_yaw, step_pitch, True)
+        
+        # Switch to next pitch angle for next iteration
+        current_pitch_index = (current_pitch_index + 1) % len(pitch_angles)
+        
+        # CONTINUOUS MOVEMENT STUCK CHECK
+        current_time = time.time()
+        if current_time - movement_check_start >= 1.0:  # Check every second
+            current_pos = m.player_position()
+            distance_moved = math.sqrt(
+                (current_pos[0] - last_position[0])**2 + 
+                (current_pos[2] - last_position[2])**2
+            )
+            
+            
+            if distance_moved < 0.3:
+                consecutive_stuck_checks += 1
+                
+                # IMMEDIATE STUCK DETECTION: If ANY check shows 0.00 movement, trigger immediately
+                if distance_moved == 0.00:
+                    break
+                    
+                if consecutive_stuck_checks >= stuck_threshold:
+                    break
+            else:
+                # Reset counter if we moved
+                consecutive_stuck_checks = 0
+            
+            # Update for next check
+            last_position = current_pos
+            movement_check_start = current_time
+            
+        # Ore check - if ore found, handle it and continue mining
         if mining_active and ore_check():
-            m.player_press_forward(False)
-            return True
-    
-    if mining_active:
-        m.player_press_forward(False)
-    
-    # Second set of mining steps
-    if mining_active:
-        mining_steps_2 = [(locked_yaw, 0, True), (locked_yaw, 20, True)]
-        for step_yaw, step_pitch, check_gravel in mining_steps_2:
-            if not mining_active:
-                break
-            if check_for_t_press():
-                break
-            
-            # CONTINUOUS FALL DETECTION CHECK
-            if not monitor_fall_continuously(locked_yaw, locked_pitch):
-                return False
-            
-            if check_for_lava():
-                m.echo("LAVA DETECTED! Stopping strip mining.")
-                m.player_press_forward(False)
-                emergency_lava_stop()
-                return False
-                
-            mine_at_angle(step_yaw, step_pitch, check_gravel)
-            
-            if mining_active and ore_check():
-                m.player_press_forward(False)
-                return True
-    
-    # Third set of mining steps
-    if mining_active:
-        m.player_press_forward(True)
-        mining_steps_3 = [(locked_yaw, 0, True), (locked_yaw, 20, True), (locked_yaw, 0, True), (locked_yaw, 20, True)]
-        for step_yaw, step_pitch, check_gravel in mining_steps_3:
-            if not mining_active:
-                break
-            if check_for_t_press():
-                break
-            
-            # CONTINUOUS FALL DETECTION CHECK
-            if not monitor_fall_continuously(locked_yaw, locked_pitch):
-                return False
-            
-            if check_for_lava():
-                m.echo("LAVA DETECTED! Stopping strip mining.")
-                m.player_press_forward(False)
-                emergency_lava_stop()
-                return False
-                
-            mine_at_angle(step_yaw, step_pitch, check_gravel)
-            
-            if mining_active and ore_check():
-                m.player_press_forward(False)
-                return True
-    
-    if mining_active:
-        m.player_press_forward(False)
-    
-    # Fourth set of mining steps
-    if mining_active:
-        mining_steps_4 = [(locked_yaw, 0, True), (locked_yaw, 20, True)]
-        for step_yaw, step_pitch, check_gravel in mining_steps_4:
-            if not mining_active:
-                break
-            if check_for_t_press():
-                break
-            
-            # CONTINUOUS FALL DETECTION CHECK
-            if not monitor_fall_continuously(locked_yaw, locked_pitch):
-                return False
-            
-            if check_for_lava():
-                m.echo("LAVA DETECTED! Stopping strip mining.")
-                m.player_press_forward(False)
-                emergency_lava_stop()
-                return False
-                
-            mine_at_angle(step_yaw, step_pitch, check_gravel)
-            
-            if mining_active and ore_check():
-                m.player_press_forward(False)
-                return True
-    
-    # Final step
-    if mining_active:
-        m.player_press_attack(False)
-        aim.player_aim.hybrid_rotate_to(locked_yaw, 0, fast_threshold=15.0)
+            # Ore was mined, but continue strip mining instead of returning
+            # Reset stuck detection since we moved for ore mining
+            last_position = m.player_position()
+            movement_check_start = time.time()
+            consecutive_stuck_checks = 0
+            continue
+        
         wait_ticks(1)
-        
-        if check_for_t_press():
-            m.player_press_forward(False)
-            return False
-            
-            # LAVA CHECK
-        if check_for_lava():
-            m.echo("LAVA DETECTED! Stopping strip mining.")
-            m.player_press_forward(False)
-            emergency_lava_stop()
-            return False
-        
+    
+    # If we broke out of the loop due to stuck detection, handle it
+    if mining_active and (consecutive_stuck_checks >= stuck_threshold or consecutive_stuck_checks > 0):
         m.player_press_forward(False)
-        m.player_press_attack(False)
+        if mining_active:
+            m.player_press_sneak(False)
+            m.player_press_forward(True)
+            wait_ticks(5)
+            m.player_press_forward(False)
+            m.player_press_attack(False)
+            aim.player_aim.hybrid_rotate_to(locked_yaw, 0, fast_threshold=15.0)
+            wait_ticks(1)
+            
+            if check_for_t_press():
+                m.player_press_forward(False)
+                return False
+                
+            # LAVA CHECK
+            if check_for_lava():
+                m.echo("LAVA DETECTED! Stopping strip mining.")
+                m.player_press_forward(False)
+                emergency_lava_stop()
+                return False
+            
+            m.player_press_forward(False)
+            m.player_press_attack(False)
+        
+        return False
+    
+    # Normal completion (mining_active became False)
+    if mining_active:
+        m.player_press_forward(False)
     
     return False
 
