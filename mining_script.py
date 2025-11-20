@@ -71,9 +71,7 @@ def gravel_check(yaw, pitch):
     if not mining_active:
         return False
         
-    # Use instant rotation for maximum speed
-    aim.player_aim.instant_rotate_to(yaw, pitch)
-    # No wait needed for instant rotation
+    aim.player_aim.smooth_rotate_to(yaw, pitch)
     
     targeted_block = m.player_get_targeted_block(max_distance=5)
     
@@ -189,7 +187,7 @@ def check_and_recover_from_fall(locked_yaw, locked_pitch):
         time.sleep(0.2)
         
         # Look towards the original mining direction
-        aim.player_aim.instant_rotate_to(locked_yaw, locked_pitch)
+        aim.player_aim.smooth_rotate_to(locked_yaw, locked_pitch)
         time.sleep(0.1)
         
         # Attempt to jump for 3 seconds
@@ -320,8 +318,7 @@ def lock_to_cardinal_direction():
     # Center pitch to 0 (straight ahead)
     target_pitch = 0
     
-    # Use instant rotation
-    aim.player_aim.instant_rotate_to(target_yaw, target_pitch)
+    aim.player_aim.smooth_rotate_to(target_yaw, target_pitch)
     return target_yaw, target_pitch
 
 def emergency_lava_stop():
@@ -594,6 +591,7 @@ def mine_ore_vein_continuous():
         time.sleep(0.1)
         m.player_press_sneak(True)
         time.sleep(0.1)
+        m.player_press_forward(True)
     
     return ores_mined > 0
 
@@ -629,90 +627,6 @@ def get_mining_time_for_ore(ore_type):
         return 3.0   # Easy
     else:
         return 5.0   # Default
-
-def return_to_position(target_position, target_orientation):
-    """Return to the original position and orientation"""
-    if not mining_active:
-        return
-        
-    # Check for T press
-    if check_for_t_press():
-        return
-        
-    current_pos = m.player_position()
-    current_ori = m.player_orientation()
-    
-    target_x, target_y, target_z = target_position
-    current_x, current_y, current_z = current_pos
-    
-    # Calculate distance to target
-    distance = math.sqrt(
-        (target_x - current_x)**2 + 
-        (target_y - current_y)**2 + 
-        (target_z - current_z)**2
-    )
-    
-    # If we're close enough (within 1 block), just set orientation and return
-    # This prevents unnecessary backward movement
-    if distance < 1.5:
-        m.player_set_orientation(target_orientation[0], target_orientation[1])
-        time.sleep(0.3)
-        return
-    
-    # Only move back if we're significantly ahead of the target position
-    # Check if we're mostly in front of the target (in the mining direction)
-    dx = current_x - target_x
-    dz = current_z - target_z
-    
-    # Get the mining direction from the target orientation
-    mining_yaw = target_orientation[0]
-    mining_dir_x = -math.sin(math.radians(mining_yaw))
-    mining_dir_z = math.cos(math.radians(mining_yaw))
-    
-    # Calculate how far we are in the mining direction
-    dot_product = dx * mining_dir_x + dz * mining_dir_z
-    
-    if dot_product > 0.5:  
-        # Just reorient and continue from current position
-        m.player_set_orientation(target_orientation[0], target_orientation[1])
-        time.sleep(0.3)
-        return
-    
-    # Otherwise, look toward target and move (only if really needed)
-    yaw = math.degrees(math.atan2(-dx, dz))
-    
-    m.player_set_orientation(yaw, 0)
-    time.sleep(0.3)
-    
-    # Move toward target but only for a short time
-    m.player_press_forward(True)
-    
-    start_time = time.time()
-    while mining_active and distance > 1.0 and (time.time() - start_time) < 2.0:  # Max 2 seconds
-        if check_for_t_press():
-            m.player_press_forward(False)
-            return
-            
-        current_pos = m.player_position()
-        current_x, current_y, current_z = current_pos
-        
-        distance = math.sqrt(
-            (target_x - current_x)**2 + 
-            (target_y - current_y)**2 + 
-            (target_z - current_z)**2
-        )
-        
-        if distance <= 1.0:
-            break
-            
-        time.sleep(0.1)
-    
-    m.player_press_forward(False)
-    
-    # Set final orientation
-    if mining_active:
-        m.player_set_orientation(target_orientation[0], target_orientation[1])
-        time.sleep(0.3)
 
 
 def perform_strip_mining():
@@ -778,7 +692,7 @@ def perform_strip_mining():
         
         # CONTINUOUS MOVEMENT STUCK CHECK
         current_time = time.time()
-        if current_time - movement_check_start >= 1.0:  # Check every second
+        if current_time - movement_check_start >= 1.0:  # Check every second (if you have swift sneak, change this to 2.0, otherwise stay at 1.0)
             current_pos = m.player_position()
             distance_moved = math.sqrt(
                 (current_pos[0] - last_position[0])**2 + 
@@ -934,74 +848,10 @@ def quick_ore_scan():
         wait_ticks(1)
         m.player_press_sneak(True)
         wait_ticks(1)
+        m.player_press_forward(True)
         return True
     
     return False
-
-def return_to_position(target_position, target_orientation):
-    """Return to the original position and orientation - OPTIMIZED"""
-    if not mining_active:
-        return
-        
-    # Check for T press
-    if check_for_t_press():
-        return
-        
-    current_pos = m.player_position()
-    
-    target_x, target_y, target_z = target_position
-    current_x, current_y, current_z = current_pos
-    
-    # Calculate distance to target
-    distance = math.sqrt(
-        (target_x - current_x)**2 + 
-        (target_y - current_y)**2 + 
-        (target_z - current_z)**2
-    )
-    
-    # If we're close enough (within 1 block), just set orientation and return
-    if distance < 1.5:
-        m.player_set_orientation(target_orientation[0], target_orientation[1])
-        time.sleep(0.1)  # Reduced
-        return
-    
-    # Otherwise, look toward target and move quickly
-    dx = current_x - target_x
-    dz = current_z - target_z
-    yaw = math.degrees(math.atan2(-dx, dz))
-    
-    m.player_set_orientation(yaw, 0)
-    time.sleep(0.1)  # Reduced
-    
-    # Move toward target but only for a short time
-    m.player_press_forward(True)
-    
-    start_time = time.time()
-    while mining_active and distance > 1.0 and (time.time() - start_time) < 1.0:  # Max 1 second
-        if check_for_t_press():
-            m.player_press_forward(False)
-            return
-            
-        current_pos = m.player_position()
-        current_x, current_y, current_z = current_pos
-        
-        distance = math.sqrt(
-            (target_x - current_x)**2 + 
-            (target_y - current_y)**2 + 
-            (target_z - current_z)**2
-        )
-        
-        if distance <= 1.0:
-            break
-            
-        time.sleep(0.05)  # Reduced
-    
-    m.player_press_forward(False)
-    
-    # Set final orientation
-    if mining_active:
-        m.player_set_orientation(target_orientation[0], target_orientation[1])
-        time.sleep(0.1)  # Reduced
 
 def ore_check():
     """ULTRA-FAST ore check using targeting system"""

@@ -47,10 +47,6 @@ def smooth_rotate_to(target_yaw: float, target_pitch: float, duration: float = 0
         if i < steps:  # Don't sleep on the last step
             time.sleep(step)
 
-def instant_rotate_to(target_yaw: float, target_pitch: float):
-    """Instant rotation for when speed is critical"""
-    m.player_set_orientation(target_yaw, target_pitch)
-
 def hybrid_rotate_to(target_yaw: float, target_pitch: float, fast_threshold: float = 10.0):
     """Hybrid approach: instant for small moves, fast smooth for larger moves"""
     current_yaw, current_pitch = m.player_orientation()
@@ -60,7 +56,7 @@ def hybrid_rotate_to(target_yaw: float, target_pitch: float, fast_threshold: flo
     
     # If the angle change is small, use instant rotation
     if yaw_diff < fast_threshold and pitch_diff < fast_threshold:
-        instant_rotate_to(target_yaw, target_pitch)
+        smooth_rotate_to(target_yaw, target_pitch)
     else:
         # Use very fast smooth rotation for larger moves
-        smooth_rotate_to(target_yaw, target_pitch, duration=0.05, step=0.005)
+        smooth_rotate_to(target_yaw, target_pitch)
