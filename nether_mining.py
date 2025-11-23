@@ -91,89 +91,82 @@ def gravel_mine():
         m.player_press_forward(True)
 
 def check_for_basalt_or_blackstone():
-    """Check if basalt or blackstone is detected in the DIRECT mining path"""
+    """Check if basalt or blackstone is detected in the EXACT mining target"""
     if not mining_active:
         return False
     
-    # Get player position and orientation
-    px, py, pz = m.player_position()
-    yaw, pitch = m.player_orientation()
-    facing_direction = get_facing_direction(yaw)
+    # Get the EXACT block the player is looking at and mining
+    targeted_block = m.player_get_targeted_block(max_distance=4)
     
-    # Check ONLY the blocks directly in the mining path (where the player is looking/mining)
-    check_positions = []
+    # If no block targeted (air), that means we're not mining basalt/blackstone
+    if not targeted_block or not targeted_block.position:
+        return False
     
-    # Check 2-3 blocks directly ahead in the mining direction (the actual mining area)
-    if facing_direction == "north":  # -Z
-        for distance in range(2, 4):  # Check 2-3 blocks ahead
-            check_positions.append((int(px), int(py), int(pz - distance)))      # Body level
-            check_positions.append((int(px), int(py + 1), int(pz - distance)))  # Head level
-    elif facing_direction == "south":  # +Z
-        for distance in range(2, 4):
-            check_positions.append((int(px), int(py), int(pz + distance)))
-            check_positions.append((int(px), int(py + 1), int(pz + distance)))
-    elif facing_direction == "east":  # +X
-        for distance in range(2, 4):
-            check_positions.append((int(px + distance), int(py), int(pz)))
-            check_positions.append((int(px + distance), int(py + 1), int(pz)))
-    elif facing_direction == "west":  # -X
-        for distance in range(2, 4):
-            check_positions.append((int(px - distance), int(py), int(pz)))
-            check_positions.append((int(px - distance), int(py + 1), int(pz)))
+    target_x, target_y, target_z = targeted_block.position
+    block_type = m.getblock(target_x, target_y, target_z)
     
-    # Remove duplicates
-    check_positions = list(set(check_positions))
+    # If it's air, we're not mining basalt/blackstone
+    if not block_type or block_type == "minecraft:air":
+        return False
     
-    # Check each position for basalt or blackstone
-    for check_x, check_y, check_z in check_positions:
-        block_type = m.getblock(check_x, check_y, check_z)
-        if block_type and ("basalt" in block_type.lower() or "blackstone" in block_type.lower()):
-            return True
+    # Normalize block type for comparison
+    normalized_block = block_type.lower()
+    
+    # Remove block states and namespaces for more robust detection
+    base_block = normalized_block.split('[')[0].split('{')[0]  # Remove block states
+    base_block = base_block.replace('minecraft:', '')  # Remove namespace
+    
+    # Check for basalt or blackstone variants
+    is_basalt = any(basalt_type in base_block for basalt_type in ['basalt', 'smooth_basalt'])
+    is_blackstone = any(blackstone_type in base_block for blackstone_type in [
+        'blackstone', 
+        'polished_blackstone',
+        'blackstone_slab',
+        'blackstone_stairs',
+        'blackstone_wall',
+        'gilded_blackstone'
+    ])
+    
+    if is_basalt or is_blackstone:
+        m.echo(f"✅ DETECTED: {block_type} at targeted position")
+        return True
     
     return False
 
+
 def only_netherrack_in_mining_path():
-    """Check if only netherrack is detected in the DIRECT mining path"""
+    """Check if only netherrack is detected in the EXACT mining target - CONTINUES TIMER ON AIR"""
     if not mining_active:
         return False
     
-    # Get player position and orientation
-    px, py, pz = m.player_position()
-    yaw, pitch = m.player_orientation()
-    facing_direction = get_facing_direction(yaw)
+    # Get the EXACT block the player is looking at and mining
+    targeted_block = m.player_get_targeted_block(max_distance=4)
     
-    # Check ONLY the blocks directly in the mining path
-    check_positions = []
+    # If no block targeted (air), that means we're successfully mining through netherrack
+    # So we should continue the timer
+    if not targeted_block or not targeted_block.position:
+        m.echo("💨 No block targeted (mining through netherrack) - continuing timer")
+        return True  # Continue the timer when mining through air (successful netherrack mining)
     
-    # Check 2-3 blocks directly ahead in the mining direction
-    if facing_direction == "north":  # -Z
-        for distance in range(2, 4):
-            check_positions.append((int(px), int(py), int(pz - distance)))
-            check_positions.append((int(px), int(py + 1), int(pz - distance)))
-    elif facing_direction == "south":  # +Z
-        for distance in range(2, 4):
-            check_positions.append((int(px), int(py), int(pz + distance)))
-            check_positions.append((int(px), int(py + 1), int(pz + distance)))
-    elif facing_direction == "east":  # +X
-        for distance in range(2, 4):
-            check_positions.append((int(px + distance), int(py), int(pz)))
-            check_positions.append((int(px + distance), int(py + 1), int(pz)))
-    elif facing_direction == "west":  # -X
-        for distance in range(2, 4):
-            check_positions.append((int(px - distance), int(py), int(pz)))
-            check_positions.append((int(px - distance), int(py + 1), int(pz)))
+    target_x, target_y, target_z = targeted_block.position
+    block_type = m.getblock(target_x, target_y, target_z)
     
-    # Remove duplicates
-    check_positions = list(set(check_positions))
+    # If it's air, we're successfully mining through netherrack
+    if not block_type or block_type == "minecraft:air":
+        m.echo("💨 Air detected (mining through netherrack) - continuing timer")
+        return True
     
-    # Check if ALL detected blocks in mining path are netherrack (or air)
-    for check_x, check_y, check_z in check_positions:
-        block_type = m.getblock(check_x, check_y, check_z)
-        if block_type and block_type != "minecraft:air":
-            if "netherrack" not in block_type.lower() and "air" not in block_type.lower():
-                return False
+    # If there's a block, check if it's netherrack
+    normalized_block = block_type.lower()
+    base_block = normalized_block.split('[')[0].split('{')[0]
+    base_block = base_block.replace('minecraft:', '')
     
-    return True
+    if "netherrack" in base_block:
+        m.echo("✅ Netherrack detected - continuing timer")
+        return True
+    else:
+        m.echo(f"❌ Non-netherrack block detected: {block_type} - resetting timer")
+        return False
 
 def handle_basalt_blackstone_mining():
     """Handle mining when basalt or blackstone is detected - WITH ORE SCANNING AND SIMPLE STUCK DETECTION"""
