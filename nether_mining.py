@@ -176,7 +176,7 @@ def only_netherrack_in_mining_path():
     return True
 
 def handle_basalt_blackstone_mining():
-    """Handle mining when basalt or blackstone is detected - DYNAMIC MODE SWITCHING"""
+    """Handle mining when basalt or blackstone is detected - WITH ORE SCANNING AND SIMPLE STUCK DETECTION"""
     global mining_active
     
     m.echo("🔍 Checking mining path for basalt/blackstone...")
@@ -195,18 +195,73 @@ def handle_basalt_blackstone_mining():
         last_check_time = time.time()
         check_interval = 0.5  # Check every 0.5 seconds
         
+        # ADDED: Ore check variables
+        last_ore_check_time = time.time()
+        ore_check_interval = 3.0  # Check for ores every 3 seconds
+        
+        # ADDED: Simple stuck detection variables for basalt/blackstone mode
+        movement_check_start = time.time()
+        last_position = m.player_position()
+        consecutive_stuck_checks = 0
+        stuck_threshold = 3
+        
         while mining_active:
             if check_for_t_press():
                 break
                 
             current_time = time.time()
+            
+            # ADDED: Regular ore checking during basalt/blackstone mining
+            if current_time - last_ore_check_time >= ore_check_interval:
+                last_ore_check_time = current_time
+                m.echo("💎 Checking for ores during basalt/blackstone mining...")
+                if ore_check():
+                    m.echo("✅ Ore mined during basalt/blackstone mode, continuing...")
+                    # Reset the netherrack timer and stuck detection since we moved for ore mining
+                    netherrack_only_start = None
+                    last_position = m.player_position()
+                    movement_check_start = current_time
+                    consecutive_stuck_checks = 0
+            
+            # ADDED: Simple stuck detection during basalt/blackstone mining
+            if current_time - movement_check_start >= 1.5:
+                current_pos = m.player_position()
+                distance_moved = math.sqrt(
+                    (current_pos[0] - last_position[0])**2 + 
+                    (current_pos[2] - last_position[2])**2
+                )
+                
+                if distance_moved < 0.3:
+                    consecutive_stuck_checks += 1
+                    m.echo(f"⚠️ Stuck detection in basalt mode: {consecutive_stuck_checks}/{stuck_threshold}")
+                    
+                    if distance_moved == 0.00 or consecutive_stuck_checks >= stuck_threshold:
+                        m.echo("🚫 Stuck in basalt/blackstone mode! Simple recovery: moving forward...")
+                        
+                        m.player_press_sneak(False)
+                        # SIMPLE RECOVERY: Just move forward a bit
+                        m.player_press_forward(True)
+                        time.sleep(0.3)  # Move forward for 1 second
+                        
+                        # Reset stuck detection
+                        last_position = m.player_position()
+                        movement_check_start = time.time()
+                        consecutive_stuck_checks = 0
+                        m.echo("✅ Simple recovery completed, continuing basalt/blackstone mining")
+                        m.player_press_sneak(True)
+                else:
+                    consecutive_stuck_checks = 0
+                
+                last_position = current_pos
+                movement_check_start = current_time
+            
             if current_time - last_check_time >= check_interval:
                 last_check_time = current_time
                 
                 # Check if we're still in basalt/blackstone mode
                 if check_for_basalt_or_blackstone():
                     m.player_press_forward(True)
-                    time.sleep(0.2)  
+                    time.sleep(0.2)
                     # Reset timer if basalt/blackstone is detected again
                     netherrack_only_start = None
                     m.echo("🔄 Still mining basalt/blackstone - keeping sneak on")
@@ -228,8 +283,11 @@ def handle_basalt_blackstone_mining():
                 # CONTINUOUS FALL DETECTION CHECK
                 current_yaw, current_pitch = m.player_orientation()
                 if not monitor_fall_continuously(current_yaw, current_pitch):
-                    # Fall recovery handled, continue mining
-                    pass
+                    # Fall recovery handled, reset stuck detection
+                    last_position = m.player_position()
+                    movement_check_start = time.time()
+                    consecutive_stuck_checks = 0
+                    m.echo("🔄 Reset stuck detection after fall recovery in basalt mode")
                 
                 # LAVA CHECK
                 if check_for_lava():
