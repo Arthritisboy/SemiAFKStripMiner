@@ -368,7 +368,7 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
     
     if mining_active:
         # Get the targeted block position before mining
-        targeted_block = m.player_get_targeted_block(max_distance=0.5)
+        targeted_block = m.player_get_targeted_block(max_distance=1)
         if not targeted_block or not targeted_block.position:
             # No block targeted, just do a quick mine
             m.player_press_attack(True)
@@ -385,7 +385,7 @@ def mine_at_angle(yaw, pitch, check_gravel=True):
         m.player_press_attack(True)
         
         start_ticks = 0
-        max_mining_ticks = 30  # Reduced to 1.5 seconds max
+        max_mining_ticks = 50  # Reduced to 2.5 seconds max
         
         block_broken = False
         
